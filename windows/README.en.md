@@ -60,6 +60,10 @@ Exit the Dream Skin tray and close Codex, update the checkout (`git pull`, or do
 
 The `Codex Dream Skin` shortcut is the recommended launcher. It asks for confirmation before restarting an open Codex window.
 
+Version 2.0.3 adds startup improvements: the manager refreshes status every 15 seconds while idle and when activated, and attempts one reconnect for an unhealthy active skin at startup. Recovery respects pause and asks for a manual apply if the connection cannot be verified, without launching Codex. Cold video startup validates decoding and applies the theme in one session, retaining restart confirmation and transactional appearance rollback.
+
+After the manager actually launches or restarts Codex and verifies the skin, an animation plays in the same window. Press Esc to skip or `Ctrl+Alt+B` to customize its images and text. Theme switches and background reconnects do not replay it; animation failure leaves the skin applied. Release packages use the existing GitHub Actions checks and builds; physical reboot and video playback acceptance remain pending.
+
 Command-line launch:
 
 ```powershell

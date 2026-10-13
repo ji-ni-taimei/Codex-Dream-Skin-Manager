@@ -5,6 +5,10 @@ param(
   [switch]$PromptRestart,
   [switch]$CheckOnly,
   [switch]$ConnectOnly,
+  [switch]$ReconnectOnly,
+  [switch]$RequireFreshSession,
+  [ValidateSet('auto','light','dark')][string]$RequestedThemeAppearance = 'auto',
+  [string[]]$ThemeApplyArguments = @(),
   [string]$ProfilePath,
   [switch]$ForegroundInjector,
   [ValidateRange(0, 300000)][int]$OperationLockTimeoutMilliseconds = 0,
@@ -70,9 +74,25 @@ $operationLock = $null
 $startFailureCategory = 'internal-start-failure'
 $appearanceTransaction = $null
 $appearanceRecovery = 'not-needed'
+$applyingSelectedTheme = $ThemeApplyArguments.Count -gt 0
+$selectedThemePublished = $false
+if ($applyingSelectedTheme -and ($CheckOnly -or $ConnectOnly -or $ReconnectOnly -or $ForegroundInjector)) {
+  throw 'Selected theme startup cannot be combined with check-only, connection-only, or foreground mode.'
+}
+if ($ReconnectOnly -and ($RestartExisting -or $PromptRestart -or $CheckOnly -or
+    $ConnectOnly -or $ForegroundInjector -or $RequireFreshSession)) {
+  throw 'Reconnect-only cannot be combined with restart, check-only, connection-only, fresh-session, or foreground mode.'
+}
 try {
   $operationLock = Enter-DreamSkinOperationLock `
     -TimeoutMilliseconds $OperationLockTimeoutMilliseconds
+  # The UI's initial status is only a snapshot. Recheck pause while holding the
+  # same lock as managed pause/theme writes, before touching the watcher.
+  $pauseWasSet = Test-DreamSkinPaused -StateRoot $StateRoot
+  if (($RequireUnpaused -or $ReconnectOnly) -and $pauseWasSet) {
+    $startFailureCategory = 'superseded'
+    throw 'A newer pause request superseded this theme apply or reconnect before renderer verification.'
+  }
   Assert-DreamSkinPort -Port $Port
   if ($ProfilePath) { $ProfilePath = [System.IO.Path]::GetFullPath($ProfilePath) }
   $node = Get-DreamSkinNodeRuntime
@@ -80,26 +100,25 @@ try {
   $codex = $currentCodex
   $language = Resolve-DreamSkinLanguage -StateRoot $StateRoot
   $themePaths = Get-DreamSkinThemePaths -StateRoot $StateRoot
-  if (-not $CheckOnly) { Ensure-DreamSkinManagedDirectory -Path $themePaths.Root -Root $themePaths.Root }
+  if (-not $CheckOnly -and -not $ReconnectOnly) { Ensure-DreamSkinManagedDirectory -Path $themePaths.Root -Root $themePaths.Root }
   if (-not $ProfilePathExplicit) {
     # Chromium 136+ ignores remote-debugging switches for its default data
     # directory. Keep Dream Skin on a separate persistent profile so current
     # Codex builds can expose CDP without weakening or modifying the official
     # profile. A caller-provided path remains an explicit advanced override.
     $ProfilePath = [System.IO.Path]::GetFullPath((Join-Path $StateRoot 'cdp-profile'))
-    if (-not $CheckOnly) { Ensure-DreamSkinManagedDirectory -Path $ProfilePath -Root $StateRoot }
+    if (-not $CheckOnly -and -not $ReconnectOnly) { Ensure-DreamSkinManagedDirectory -Path $ProfilePath -Root $StateRoot }
   }
   $StatePath = Join-Path $StateRoot 'state.json'
   $StdoutPath = Join-Path $StateRoot 'injector.log'
   $StderrPath = Join-Path $StateRoot 'injector-error.log'
   $VerifyPath = Join-Path $StateRoot 'verify.log'
-  if (-not $CheckOnly) {
+  if ($ReconnectOnly) {
+    # Recovery uses the latest active theme, never seeds or republishes a stale
+    # catalog/UI copy. Missing or invalid active state requires manual repair.
+    $null = Read-DreamSkinTheme -ThemeDirectory $themePaths.Active
+  } elseif (-not $CheckOnly) {
     $themePaths = Initialize-DreamSkinThemeStore -SkillRoot (Split-Path -Parent $PSScriptRoot) -StateRoot $StateRoot
-  }
-  $pauseWasSet = Test-DreamSkinPaused -StateRoot $StateRoot
-  if ($RequireUnpaused -and $pauseWasSet) {
-    $startFailureCategory = 'superseded'
-    throw 'A newer pause request superseded this theme apply before renderer verification.'
   }
 
   $previousState = Read-DreamSkinState -Path $StatePath
@@ -161,6 +180,11 @@ try {
   }
   $pendingAppearanceTransaction = Test-DreamSkinPendingAppearanceTransaction `
     -BackupPath $BackupPath
+  if ($ReconnectOnly -and $pendingAppearanceTransaction) {
+    $startFailureCategory = 'state-reconciliation-failed'
+    $appearanceRecovery = 'blocked'
+    throw 'DREAM_SKIN_RECONNECT_REQUIRED: An unfinished appearance transaction requires manual recovery; reconnect-only will not modify Codex configuration.'
+  }
   if ($pendingAppearanceTransaction) {
     # A previous process ended before it could commit or recover appearance.
     # Do not reuse its live session: the locked restart path closes Codex first,
@@ -174,6 +198,9 @@ try {
       $previousState.connectionOnly -is [bool] -and $previousState.connectionOnly) {
     $cdpIdentity = $null
   }
+  # A selected-theme startup prepares native appearance before launching.
+  # Existing sessions need explicit restart consent; a cold start launches once.
+  if ($applyingSelectedTheme -or $RequireFreshSession) { $cdpIdentity = $null }
   $debugReady = $null -ne $cdpIdentity
   $codexProcesses = if (Test-DreamSkinPathEqual -Left $codexToStop.Executable -Right $currentCodex.Executable) {
     $currentProcesses
@@ -231,18 +258,31 @@ try {
           $_.Exception)
       }
     }
-    if ($null -eq (Get-DreamSkinVerifiedCdpIdentity -Port $Port -Codex $codex)) {
+    $startupIdentity = Get-DreamSkinVerifiedCdpIdentity -Port $Port -Codex $codex
+    if ($applyingSelectedTheme -and $null -ne $startupIdentity) {
+      throw 'DREAM_SKIN_RESTART_REQUIRED: A Codex session appeared after startup consent was checked. Retry to confirm its restart before applying the selected theme.'
+    }
+    if ($null -eq $startupIdentity) {
+      if ($ReconnectOnly) {
+        throw 'DREAM_SKIN_RECONNECT_REQUIRED: Codex does not expose a verified Dream Skin CDP endpoint; automatic recovery will not launch Codex.'
+      }
       # Codex is closed on this path; sync the appearanceTheme pin to the
       # active theme before launching (config writes race the app while it runs).
       try {
-        if (-not $ConnectOnly) {
+        if (-not $ConnectOnly -and -not $ReconnectOnly) {
           $appearanceTransaction = Install-DreamSkinBaseTheme `
             -ConfigPath $ConfigPath -BackupPath $BackupPath `
-            -AppearanceTheme (Get-DreamSkinActiveThemeAppearance -ThemeDirectory $themePaths.Active) `
+            -AppearanceTheme $(if ($applyingSelectedTheme) { $RequestedThemeAppearance } else {
+              Get-DreamSkinActiveThemeAppearance -ThemeDirectory $themePaths.Active
+            }) `
             -PassThruTransaction
           if ($null -ne $appearanceTransaction) { $appearanceRecovery = 'retained' }
         }
       } catch {
+        if ($applyingSelectedTheme) {
+          $startFailureCategory = 'state-reconciliation-failed'
+          throw
+        }
         $appearanceTransaction = $null
         $appearanceRecovery = 'not-needed'
         Write-Warning "Could not sync Codex appearanceTheme to the active theme: $($_.Exception.Message)"
@@ -329,7 +369,7 @@ try {
     }
     # Keep a paused, already-running watcher paused until all state checks and
     # restart consent have succeeded. A cancelled prompt stays side-effect free.
-    if (-not $ConnectOnly) {
+    if (-not $ConnectOnly -and -not $ReconnectOnly) {
       Set-DreamSkinPaused -Paused $false -StateRoot $StateRoot | Out-Null
       $pauseCleared = $true
     }
@@ -493,12 +533,43 @@ try {
   $daemon = $null
   $startFailureCategory = 'injector-start-failed'
   try {
+    if ($applyingSelectedTheme) {
+      # One verified browser session handles decode, publication and injection.
+      # The requested native appearance was prepared before this first launch;
+      # retain its rollback journal until final renderer verification succeeds.
+      $connectionState = [pscustomobject]@{
+        schemaVersion = 3
+        platform = 'windows'
+        connectionOnly = $true
+        port = $Port
+        codexExe = $codex.Executable
+        codexPackageRoot = $codex.PackageRoot
+        codexPackageFullName = $codex.PackageFullName
+        codexPackageFamilyName = $codex.PackageFamilyName
+        codexVersion = $codex.Version
+        browserId = $cdpIdentity.BrowserId
+        profilePath = $ProfilePath
+        createdAt = (Get-Date).ToUniversalTime().ToString('o')
+      }
+      Write-DreamSkinState -Path $StatePath -State $connectionState
+      $startFailureCategory = 'renderer-verification-failed'
+      $applyResult = Invoke-DreamSkinPowerShellScript `
+        -ScriptPath (Join-Path $PSScriptRoot 'manager-actions.ps1') -ArgumentList $ThemeApplyArguments
+      if ($applyResult.ExitCode -ne 0) {
+        throw ($applyResult.Output -join [Environment]::NewLine)
+      }
+      $selectedThemePublished = $true
+      $startFailureCategory = 'injector-start-failed'
+    }
     $injectorArgs = @((ConvertTo-DreamSkinProcessArgument -Value $Injector), '--watch', '--port', "$Port",
       '--browser-id', $cdpIdentity.BrowserId, '--theme-dir',
       (ConvertTo-DreamSkinProcessArgument -Value $themePaths.Active), '--pause-file',
-      (ConvertTo-DreamSkinProcessArgument -Value $themePaths.PauseFile))
-    $daemon = Start-Process -FilePath $node.Path -ArgumentList $injectorArgs -WindowStyle Hidden -PassThru `
-      -RedirectStandardOutput $StdoutPath -RedirectStandardError $StderrPath
+      (ConvertTo-DreamSkinProcessArgument -Value $themePaths.PauseFile), '--stdout-log',
+      (ConvertTo-DreamSkinProcessArgument -Value $StdoutPath), '--stderr-log',
+      (ConvertTo-DreamSkinProcessArgument -Value $StderrPath))
+    # The watcher owns its files. Start-Process output redirection leaves
+    # Windows PowerShell waiting on its live output-pump threads after startup.
+    $daemon = Start-Process -FilePath $node.Path -ArgumentList $injectorArgs -WindowStyle Hidden -PassThru
     Start-Sleep -Milliseconds 250
     if ($daemon.HasExited) { throw "The injector exited during startup. See $StderrPath" }
 
@@ -606,7 +677,10 @@ try {
         Write-Warning "The rollback injector has not exited yet: PID $($daemon.Id). State was preserved so the next start can reconcile it."
       }
     }
-    if ($injectorStopped -and -not $launchedWithCdp -and -not $skinLooksRendered) {
+    # Automatic reconnect may be repairing a dead watcher while its skin is
+    # still visible. Failure to start the replacement is not removal consent.
+    if (-not $ReconnectOnly -and $injectorStopped -and -not $launchedWithCdp -and -not $skinLooksRendered -and
+        (-not $applyingSelectedTheme -or $selectedThemePublished)) {
       try {
         $rollbackIdentity = Get-DreamSkinVerifiedCdpIdentity -Port $Port -Codex $codex
         if ($null -ne $rollbackIdentity -and $rollbackIdentity.BrowserId -ceq $cdpIdentity.BrowserId) {
@@ -622,7 +696,11 @@ try {
     # Keep the browser identity when rollback deliberately leaves a rendered
     # skin alive. The stopped PID correctly reports stale, while Status can
     # still verify the renderer and the next start can reconcile this session.
-    if ($injectorStopped -and -not $skinLooksRendered) {
+    $retainDecodeConnection = $applyingSelectedTheme -and -not $selectedThemePublished -and
+      -not $launchedWithCdp -and $null -ne $connectionState
+    # Retain reconnect state so status/manual recovery can inspect the same
+    # browser even when failure occurred before the first renderer probe.
+    if (-not $ReconnectOnly -and $injectorStopped -and -not $skinLooksRendered -and -not $retainDecodeConnection) {
       Remove-Item -LiteralPath $StatePath -Force -ErrorAction SilentlyContinue
     }
     if ($launchedWithCdp -and -not $skinLooksRendered) {
@@ -705,6 +783,32 @@ try {
       }
     }
     throw $startupError
+  }
+
+  # Play only after this invocation actually launched Codex and committed a
+  # verified skin. Reconnecting a watcher or switching themes stays immediate.
+  # Animation is optional presentation; failure must never roll back the skin.
+  if ($launchedWithCdp) {
+    $animationScript = Join-Path $PSScriptRoot 'play-startup-animation.mjs'
+    $animationLog = Join-Path $StateRoot 'startup-animation.log'
+    if (Test-Path -LiteralPath $animationScript -PathType Leaf) {
+      try {
+        $animation = Invoke-DreamSkinNative -FilePath $node.Path -ArgumentList @(
+          $animationScript, '--port', "$Port", '--browser-id', $cdpIdentity.BrowserId,
+          '--theme-dir', $themePaths.Active, '--timeout-ms', '8000')
+        Write-DreamSkinUtf8FileAtomically -Path $animationLog -Content (
+          ($animation.Output -join "`r`n") + "`r`n")
+        if ($animation.ExitCode -ne 0) {
+          Write-Warning "皮肤已启用，但启动动画未能开始。详情：$animationLog"
+        }
+      } catch {
+        try {
+          Write-DreamSkinUtf8FileAtomically -Path $animationLog -Content (
+            "$($_.Exception.Message)`r`n")
+        } catch {}
+        Write-Warning "皮肤已启用，启动动画接入失败。详情：$animationLog"
+      }
+    }
   }
 
   Write-Host "Codex Dream Skin is active on verified loopback port $Port."

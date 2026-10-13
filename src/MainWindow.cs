@@ -11,6 +11,7 @@ using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Microsoft.Win32;
 
 namespace CodexDreamSkinManager
@@ -204,9 +205,16 @@ namespace CodexDreamSkinManager
         private Button browseImageButton;
         private DreamSkinStatus currentStatus = new DreamSkinStatus();
         private readonly SemaphoreSlim statusRefreshLock = new SemaphoreSlim(1, 1);
+        private readonly DispatcherTimer runtimeStatusTimer = new DispatcherTimer();
+        private bool backgroundStatusReadRunning;
+        private bool windowClosed;
+        private int runtimeStatusGeneration;
+        private string operationStatusLabel = "";
         private bool operationRunning;
         private bool imageValidationRunning;
         private bool updateRunning;
+        private bool startupUpdateCheckStarted;
+        private bool startupStatusRecoveryAttempted;
         private int imageValidationGeneration;
         private int statusRefreshCount;
         private bool suppressThemeSelection;
@@ -231,7 +239,22 @@ namespace CodexDreamSkinManager
             Content = BuildLayout();
             SizeChanged += delegate { UpdateThemeGridHeight(); };
             UpdateActionState();
-            Loaded += async delegate { UpdateThemeGridHeight(); await RefreshStatusAsync(); };
+            runtimeStatusTimer.Interval = TimeSpan.FromSeconds(15);
+            runtimeStatusTimer.Tick += async delegate { await RefreshBackgroundStatusAsync(); };
+            Activated += async delegate { if (IsLoaded) await RefreshBackgroundStatusAsync(); };
+            Closed += delegate { windowClosed = true; runtimeStatusGeneration++; runtimeStatusTimer.Stop(); };
+            Loaded += async delegate
+            {
+                UpdateThemeGridHeight();
+                await RefreshStatusAsync();
+                await TryRecoverStartupStatusAsync();
+                if (!windowClosed && service != null && service.CanManage) runtimeStatusTimer.Start();
+                if (!windowClosed && !startupUpdateCheckStarted)
+                {
+                    startupUpdateCheckStarted = true;
+                    CheckForUpdateOnStartupAsync();
+                }
+            };
         }
 
         public void SetStartupError(string message)
@@ -874,6 +897,7 @@ namespace CodexDreamSkinManager
                 return false;
             }
             statusRefreshCount++;
+            runtimeStatusGeneration++;
             UpdateActionState();
             await statusRefreshLock.WaitAsync();
             try
@@ -914,11 +938,22 @@ namespace CodexDreamSkinManager
             }
         }
 
+        private async Task RefreshBackgroundStatusAsync()
+        {
+            if (windowClosed || backgroundStatusReadRunning || service == null || !service.CanManage ||
+                operationRunning || statusRefreshCount > 0 || imageValidationRunning || updateRunning) return;
+            backgroundStatusReadRunning = true;
+            try { await RefreshRuntimeStatusAsync(false); }
+            finally { backgroundStatusReadRunning = false; }
+        }
+
         private async Task<string> RefreshRuntimeStatusAsync(bool reportErrors)
         {
+            int generation = runtimeStatusGeneration;
             try
             {
                 DreamSkinStatus status = await service.GetStatusAsync();
+                if (windowClosed || generation != runtimeStatusGeneration) return "";
                 status.Themes = new List<ThemeOption>(allThemes);
                 status.Message = currentStatus.Message;
                 currentStatus = status;
@@ -929,42 +964,126 @@ namespace CodexDreamSkinManager
             }
             catch (Exception ex)
             {
+                if (windowClosed || generation != runtimeStatusGeneration) return "";
                 // Keep the last known theme and running fields; a read failure is
                 // unknown state, not proof that the skin stopped or disappeared.
-                if (reportErrors)
-                {
-                    currentStatus.StatusKind = "error";
-                    currentStatus.StatusMessage = ex.Message;
-                    statusText.Text = "状态暂不可用";
-                    statusText.ToolTip = ex.Message;
-                    statusText.Foreground = DangerBrush;
-                    statusDot.Background = DangerBrush;
-                }
-                else
-                {
-                    UpdateStatusDisplay(currentStatus);
-                }
+                currentStatus.StatusKind = "error";
+                currentStatus.StatusMessage = ex.Message;
+                UpdateStatusDisplay(currentStatus);
                 UpdateActionState();
                 return "状态读取失败：" + ex.Message;
             }
         }
 
-        private async Task CheckForUpdateAsync()
+        private async Task TryRecoverStartupStatusAsync()
+        {
+            if (startupStatusRecoveryAttempted || windowClosed || service == null || !service.CanManage)
+                return;
+            string kind = currentStatus == null ? "" : currentStatus.StatusKind;
+            if (kind != "stale" && kind != "mismatch" && kind != "uninspectable") return;
+            if (currentStatus == null || string.IsNullOrWhiteSpace(currentStatus.ActiveThemeId) ||
+                string.IsNullOrWhiteSpace(currentStatus.ActiveThemeImage)) return;
+            // A paused skin is an explicit user choice. Startup reconciliation
+            // must not clear its pause marker or silently resume the watcher.
+            if (currentStatus.IsPaused)
+            {
+                startupStatusRecoveryAttempted = true;
+                return;
+            }
+            if (operationRunning) return;
+
+            startupStatusRecoveryAttempted = true;
+            operationRunning = true;
+            runtimeStatusGeneration++;
+            operationStatusLabel = "正在重新连接当前皮肤...";
+            UpdateStatusDisplay(currentStatus);
+            UpdateActionState();
+            try
+            {
+                Exception recoveryError = null;
+                try
+                {
+                    SetMessage("正在尝试重新连接当前皮肤...", false);
+                    // Reconnect the current on-disk theme under the script's lock.
+                    // Reapplying a catalog snapshot would overwrite newer settings
+                    // and clear a pause requested after the initial status read.
+                    await service.ReconnectOnlyAsync();
+                    await RefreshStatusAsync(false, false);
+                    if (!currentStatus.IsRunning || currentStatus.StatusKind == "stale" ||
+                        currentStatus.StatusKind == "mismatch" || currentStatus.StatusKind == "uninspectable" ||
+                        currentStatus.StatusKind == "error")
+                        SetMessage("当前皮肤仍需恢复，请点击“应用皮肤”完成连接。", true);
+                    else
+                        SetMessage("已重新连接当前皮肤。", false);
+                }
+                catch (Exception ex)
+                {
+                    recoveryError = ex;
+                }
+                if (recoveryError != null)
+                {
+                    // Startup repair is best effort. Keep the diagnostic status and
+                    // leave explicit recovery available to the user.
+                    await RefreshStatusAsync(false, false);
+                    if (currentStatus.IsPaused)
+                        SetMessage("当前皮肤已暂停，已保留暂停状态。", false);
+                    else
+                        SetMessage("状态需要恢复：" + recoveryError.Message, true);
+                    UpdateStatusDisplay(currentStatus);
+                    UpdateActionState();
+                }
+            }
+            finally
+            {
+                operationRunning = false;
+                operationStatusLabel = "";
+                UpdateStatusDisplay(currentStatus);
+                UpdateActionState();
+            }
+        }
+
+        private async Task CheckForUpdateOnStartupAsync()
+        {
+            // Let the window finish loading and give the user a chance to use the
+            // manager before doing network I/O. This task is intentionally
+            // fire-and-forget; all failures are swallowed so startup remains quiet.
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5));
+                if (windowClosed) return;
+                await CheckForUpdateCoreAsync(false, false);
+            }
+            catch
+            {
+                // Automatic checks must never interrupt startup or show an error.
+            }
+        }
+
+        private Task CheckForUpdateAsync()
+        {
+            return CheckForUpdateCoreAsync(true, true);
+        }
+
+        private async Task CheckForUpdateCoreAsync(bool showNoUpdateMessage, bool showFailureMessage)
         {
             if (updateRunning || operationRunning || statusRefreshCount > 0 || imageValidationRunning ||
                 service == null || !service.CanUpdate) return;
             updateRunning = true;
             checkUpdateButton.Content = "正在检查...";
             UpdateActionState();
-            SetMessage("正在检查软件更新...", false);
+            if (showNoUpdateMessage) SetMessage("正在检查软件更新...", false);
+            bool installationRequested = false;
             try
             {
                 UpdateCheckResult update = await service.CheckForUpdateAsync();
                 if (!update.UpdateAvailable)
                 {
-                    string message = "当前版本 " + update.CurrentVersion + " 已是最新版。";
-                    SetMessage(message, false);
-                    MessageBox.Show(this, message, "检查更新", MessageBoxButton.OK, MessageBoxImage.Information);
+                    if (showNoUpdateMessage)
+                    {
+                        string message = "当前版本 " + update.CurrentVersion + " 已是最新版。";
+                        SetMessage(message, false);
+                        MessageBox.Show(this, message, "检查更新", MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
                     return;
                 }
 
@@ -977,6 +1096,7 @@ namespace CodexDreamSkinManager
                     return;
                 }
 
+                installationRequested = true;
                 checkUpdateButton.Content = "正在下载...";
                 SetMessage("正在下载并校验 " + update.LatestVersion + " 安装包...", false);
                 UpdateCheckResult started = await service.StartUpdateAsync(update.LatestVersion);
@@ -984,8 +1104,12 @@ namespace CodexDreamSkinManager
             }
             catch (Exception ex)
             {
-                SetMessage("检查更新失败：" + ex.Message, true);
-                MessageBox.Show(this, ex.Message, "检查更新失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                if (showFailureMessage || installationRequested)
+                {
+                    string failureTitle = installationRequested ? "安装更新失败" : "检查更新失败";
+                    SetMessage(failureTitle + "：" + ex.Message, true);
+                    MessageBox.Show(this, ex.Message, failureTitle, MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
             }
             finally
             {
@@ -1008,6 +1132,18 @@ namespace CodexDreamSkinManager
             statusText.Foreground = appliedWithoutWatcher ? WarningBrush : unhealthy ? DangerBrush : status.IsRunning ? pausedWhileRunning ? WarningBrush : SuccessBrush : MutedBrush;
             statusDot.Background = statusText.Foreground;
             statusText.ToolTip = BuildStatusDetails(status);
+            if (status.StatusKind == "error")
+            {
+                statusText.Text = "状态暂不可用";
+                statusText.Foreground = WarningBrush;
+                statusDot.Background = WarningBrush;
+            }
+            if (operationRunning)
+            {
+                statusText.Text = string.IsNullOrWhiteSpace(operationStatusLabel) ? "正在执行..." : operationStatusLabel;
+                statusText.Foreground = WarningBrush;
+                statusDot.Background = WarningBrush;
+            }
             activeThemeText.Text = string.IsNullOrWhiteSpace(status.ActiveThemeName) ? "未选择" : CleanThemeName(status.ActiveThemeName);
         }
 
@@ -1247,7 +1383,7 @@ namespace CodexDreamSkinManager
             if (theme == null) { SetMessage("请先选择一个主题。", true); return; }
             await RunOperationAsync(async delegate
             {
-                SetMessage("正在读取连接状态...", false);
+                SetOperationPhase("正在读取状态...", "正在读取连接状态...");
                 // The manager may have stayed open while Codex exited or restarted.
                 currentStatus = await service.GetStatusAsync();
                 ActionAvailability availability = ActionAvailability.FromStatus(currentStatus, false, true, hasValidCustomImage);
@@ -1255,7 +1391,7 @@ namespace CodexDreamSkinManager
                 {
                     if (!ConfirmThemeRecoveryRestart(theme.Name))
                         throw new OperationCanceledException("已取消操作，未切换主题或重启 Codex。");
-                    SetMessage("正在恢复连接并应用主题，最长等待 5 分钟...", false);
+                    SetOperationPhase("正在恢复连接...", "正在恢复连接并应用主题，最长等待 5 分钟...");
                     await service.ApplyThemeAndRecoverAsync(theme);
                 }
                 else
@@ -1264,39 +1400,40 @@ namespace CodexDreamSkinManager
                     // A degraded renderer can still have a healthy, reusable
                     // CDP/injector session (for example after an image theme
                     // change), so normal image themes try live apply first.
-                    // Video themes still need the connection preflight because
-                    // the video decoder is validated during startup.
+                    // Video startup validates the decoder and publishes the
+                    // selected theme within the same startup transaction.
                     bool degraded = string.Equals(currentStatus.StatusKind, "degraded", StringComparison.OrdinalIgnoreCase);
                     bool needsStart = !currentStatus.IsRunning || (video && degraded);
-                    // A video connection is temporary: after validation startup
-                    // closes it to install the selected theme's native appearance.
                     bool restartAuthorized = false;
                     if (needsStart || restart)
-                        restartAuthorized = await ConfirmStartupIfRequiredAsync("应用主题", restart || (video && needsStart));
+                        restartAuthorized = await ConfirmStartupIfRequiredAsync("应用主题", restart, video && needsStart);
                     needsStart = needsStart || restartAuthorized;
                     if (needsStart && video)
                     {
-                        SetMessage("正在连接 Codex 并验证视频...", false);
-                        await service.ConnectAsync(restartAuthorized);
+                        SetOperationPhase("正在应用视频皮肤...", "正在连接 Codex、验证视频并应用皮肤，最长等待 5 分钟...");
+                        await service.ApplyThemeAndStartAsync(theme, restartAuthorized);
                     }
-                    // A degraded session must not fail live apply before StartAsync
-                    // gets the chance to reconcile its browser/watcher identity.
-                    SetMessage("正在校验并应用主题，最长等待 5 分钟...", false);
-                    bool rendererApplied = await service.ApplyThemeAsync(theme, needsStart);
-                    // The watcher can also exit between Status and ApplyTheme.
-                    // Persisting a theme alone is not successful application.
-                    if (needsStart || !rendererApplied)
+                    else
                     {
-                        if (!needsStart)
+                        // A degraded session must not fail live apply before StartAsync
+                        // gets the chance to reconcile its browser/watcher identity.
+                        SetOperationPhase("正在应用皮肤...", "正在校验并应用主题，最长等待 5 分钟...");
+                        bool rendererApplied = await service.ApplyThemeAsync(theme, needsStart);
+                        // The watcher can also exit between Status and ApplyTheme.
+                        // Persisting a theme alone is not successful application.
+                        if (needsStart || !rendererApplied)
                         {
-                            try { restartAuthorized = await ConfirmStartupIfRequiredAsync("恢复皮肤连接", false); }
-                            catch (OperationCanceledException)
+                            if (!needsStart)
                             {
-                                throw new OperationCanceledException("主题已保存，已取消恢复连接；尚未确认皮肤显示。请重新应用主题。");
+                                try { restartAuthorized = await ConfirmStartupIfRequiredAsync("恢复皮肤连接", false); }
+                                catch (OperationCanceledException)
+                                {
+                                    throw new OperationCanceledException("主题已保存，已取消恢复连接；尚未确认皮肤显示。请重新应用主题。");
+                                }
                             }
+                            SetOperationPhase("正在连接皮肤服务...", "正在连接皮肤服务并确认显示...");
+                            await service.StartAsync(restartAuthorized);
                         }
-                        SetMessage("正在连接皮肤服务并确认显示...", false);
-                        await service.StartAsync(restartAuthorized);
                     }
                 }
                 SetExpectedRuntimeState(true, false);
@@ -1362,12 +1499,12 @@ namespace CodexDreamSkinManager
             }, "皮肤已启用。");
         }
 
-        private async Task<bool> ConfirmStartupIfRequiredAsync(string operation, bool forceRestart)
+        private async Task<bool> ConfirmStartupIfRequiredAsync(string operation, bool forceRestart, bool requireFreshSession = false)
         {
             bool requiresRestart = forceRestart;
             try
             {
-                await service.CheckStartupAsync();
+                await service.CheckStartupAsync(requireFreshSession);
             }
             catch (Exception ex)
             {
@@ -1507,6 +1644,9 @@ namespace CodexDreamSkinManager
         {
             if (operationRunning || statusRefreshCount > 0 || service == null) return;
             operationRunning = true;
+            runtimeStatusGeneration++;
+            operationStatusLabel = "正在执行...";
+            UpdateStatusDisplay(currentStatus);
             UpdateActionState();
             SetMessage("正在执行...", false);
             string finalMessage = success;
@@ -1542,6 +1682,8 @@ namespace CodexDreamSkinManager
             finally
             {
                 operationRunning = false;
+                operationStatusLabel = "";
+                UpdateStatusDisplay(currentStatus);
                 UpdateActionState();
             }
             if (!refreshed && !finalError && !cancelled)
@@ -1691,6 +1833,9 @@ namespace CodexDreamSkinManager
         {
             if (operationRunning || statusRefreshCount > 0 || service == null || items == null || items.Count == 0) return;
             operationRunning = true;
+            runtimeStatusGeneration++;
+            operationStatusLabel = "正在导入主题...";
+            UpdateStatusDisplay(currentStatus);
             UpdateActionState();
             SetMessage("正在导入 " + items.Count + " 个主题...", false);
             string message;
@@ -1723,6 +1868,8 @@ namespace CodexDreamSkinManager
             finally
             {
                 operationRunning = false;
+                operationStatusLabel = "";
+                UpdateStatusDisplay(currentStatus);
                 UpdateActionState();
             }
             if (!refreshed && !error)
@@ -1766,6 +1913,9 @@ namespace CodexDreamSkinManager
                     return;
                 }
                 operationRunning = true;
+                runtimeStatusGeneration++;
+                operationStatusLabel = "正在保存素材...";
+                UpdateStatusDisplay(currentStatus);
                 UpdateActionState();
                 SetMessage("正在保存原始素材...", false);
                 try
@@ -1790,6 +1940,8 @@ namespace CodexDreamSkinManager
                 finally
                 {
                     operationRunning = false;
+                    operationStatusLabel = "";
+                    UpdateStatusDisplay(currentStatus);
                     UpdateActionState();
                 }
             }
@@ -1955,6 +2107,13 @@ namespace CodexDreamSkinManager
                 "管理器不会终止身份无法确认的进程；若安全检查失败，将中止恢复并保留诊断状态。是否继续？";
             return MessageBox.Show(this, message, "确认应用并重启", MessageBoxButton.YesNo,
                 MessageBoxImage.Warning) == MessageBoxResult.Yes;
+        }
+
+        private void SetOperationPhase(string label, string message)
+        {
+            operationStatusLabel = label;
+            UpdateStatusDisplay(currentStatus);
+            SetMessage(message, false);
         }
 
         private void SetMessage(string message, bool error)

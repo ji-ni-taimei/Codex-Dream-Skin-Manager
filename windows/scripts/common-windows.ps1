@@ -601,6 +601,60 @@ function Invoke-DreamSkinNative {
   }
 }
 
+function Invoke-DreamSkinPowerShellScript {
+  param(
+    [Parameter(Mandatory = $true)][string]$ScriptPath,
+    [string[]]$ArgumentList = @(),
+    [string[]]$SwitchParameters = @('-DeferLiveApply', '-SkipThemes')
+  )
+  # Windows PowerShell's native -File forwarding strips embedded JSON quotes.
+  # Encode a PowerShell invocation with literal values instead of native argv.
+  $parameters = @{}
+  $parameterName = ''
+  $expectParameter = $true
+  foreach ($argument in $ArgumentList) {
+    if ($expectParameter) {
+      if ($argument -cnotmatch '^-[A-Za-z][A-Za-z0-9]*$') {
+        throw 'Invalid PowerShell script parameter name.'
+      }
+      $parameterName = $argument.Substring(1)
+      if ($parameters.ContainsKey($parameterName)) { throw 'Duplicate PowerShell script parameter.' }
+      $expectParameter = $SwitchParameters -contains $argument
+      if ($expectParameter) { $parameters[$parameterName] = $true }
+    } else {
+      $parameters[$parameterName] = $argument
+      $expectParameter = $true
+    }
+  }
+  if (-not $expectParameter) { throw 'PowerShell script parameter is missing its value.' }
+  $payloadJson = @{ ScriptPath = $ScriptPath; Parameters = $parameters } | ConvertTo-Json -Depth 4 -Compress
+  $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($payloadJson))
+  # Only Base64 enters executable text. All Unicode quotes and shell-like
+  # contents remain data when the child reconstructs and splats parameters.
+  $command = @'
+$ErrorActionPreference = 'Stop'
+$utf8 = [Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
+try {
+  $request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__PAYLOAD__')) | ConvertFrom-Json
+  $parameters = @{}
+  foreach ($property in $request.Parameters.PSObject.Properties) {
+    $parameters[$property.Name] = $property.Value
+  }
+  & ($request.ScriptPath) @parameters
+  if (-not $?) { exit 1 }
+} catch {
+  [Console]::Error.WriteLine($_.Exception.Message)
+  exit 1
+}
+'@
+  $command = $command.Replace('__PAYLOAD__', $payload)
+  $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+  return Invoke-DreamSkinNative -FilePath 'powershell.exe' -ArgumentList @(
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded)
+}
+
 function ConvertFrom-DreamSkinUtf8Base64 {
   param(
     [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Value
@@ -1351,6 +1405,22 @@ function Stop-DreamSkinRecordedInjector {
   $processId = [int]$State.injectorPid
   $processHandle = Get-Process -Id $processId -ErrorAction SilentlyContinue
   if (-not $processHandle) { return $true }
+  try {
+    $processStartedAt = $processHandle.StartTime.ToUniversalTime()
+    $startedAt = $processStartedAt.ToString('o')
+  } catch {
+    if ($processHandle.HasExited) { return $true }
+    throw "The recorded injector PID $processId is running, but its start time cannot be inspected. State was preserved."
+  }
+  if ($State.injectorStartedAt) {
+    # A persisted PID can belong to an unrelated process after reboot. Prove
+    # the start time differs before requesting its CIM identity: stale state
+    # should be archived by the caller, never block or kill the reused PID.
+    if ((Test-DreamSkinTimestampEqual -Left $State.injectorStartedAt -Right $State.injectorStartedAt) -and
+      -not (Test-DreamSkinTimestampEqual -Left $startedAt -Right $State.injectorStartedAt)) {
+      return $false
+    }
+  }
   $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
   if (-not $process) {
     if ($processHandle.HasExited) { return $true }
@@ -1366,6 +1436,9 @@ function Stop-DreamSkinRecordedInjector {
   }
   $processPath = Get-DreamSkinProcessExecutablePath -ProcessInfo $process
   $commandLine = "$($process.CommandLine)"
+  if ($processPath -and [System.IO.Path]::GetFileName("$processPath") -ine 'node.exe') {
+    return $false
+  }
   if (-not $processPath -or -not $commandLine) {
     throw "The recorded injector PID $processId is running, but its identity cannot be inspected. State was preserved."
   }
@@ -1384,12 +1457,6 @@ function Stop-DreamSkinRecordedInjector {
   if ($State.browserId) {
     $browserPattern = '(?:^|\s)(?i:--browser-id)(?:=|\s+)' + [regex]::Escape("$($State.browserId)") + '(?=$|\s)'
     $injectorMatches = $injectorMatches -and [regex]::IsMatch($commandLine, $browserPattern)
-  }
-  try {
-    $startedAt = $processHandle.StartTime.ToUniversalTime().ToString('o')
-  } catch {
-    if ($processHandle.HasExited) { return $true }
-    throw "The recorded injector PID $processId is running, but its start time cannot be inspected. State was preserved."
   }
   $startMatches = -not $State.injectorStartedAt -or
     (Test-DreamSkinTimestampEqual -Left $startedAt -Right $State.injectorStartedAt)

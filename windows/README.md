@@ -63,6 +63,10 @@ powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File .\scripts\install-
 
 推荐从 `Codex Dream Skin` 快捷方式启动。它发现 Codex 已经运行时会先询问是否重启。
 
+2.0.3 新增启动改进：管理器空闲时每 15 秒及重新激活窗口时刷新状态；启动时对异常的当前皮肤尝试一次仅重连，保留用户暂停选择，连接不可验证时提示手动应用，不主动启动 Codex。视频冷启动在同一会话完成实际解码和应用，失败时回滚本次外观配置并保留较新的用户改动。
+
+实际启动或重启 Codex 并确认皮肤后，会在同窗口播放启动动画；Esc 可跳过，`Ctrl+Alt+B` 可修改动画图片与文字。普通切换主题和后台重连不重播，动画失败不会撤销皮肤。正式包通过 GitHub Actions 执行既有检查和构建；实机重启及视频播放验收尚未完成。
+
 命令行启动：
 
 ```powershell
