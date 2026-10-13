@@ -28,17 +28,17 @@ namespace CodexDreamSkinManager
         {
             RunStatusReadTests();
             if (Array.IndexOf(args, "--status-read-only") >= 0) return ReportResults();
-            Run("Cold video apply connects before validation and starts after publication", delegate {
-                AssertApplyFlow(false, true, true, false, "check,confirm,connect,apply,start", true);
+            Run("Cold video apply uses selected-theme startup without restart consent", delegate {
+                AssertApplyFlow(false, true, true, false, "check,connect,apply,start", true);
             });
             Run("Rejected video preserves active theme and does not start injector", delegate {
-                AssertApplyFlow(false, true, true, true, "check,confirm,connect,apply", false);
+                AssertApplyFlow(false, true, true, true, "check,connect,apply", false);
             });
             Run("Cancelled video startup does not connect or change theme", delegate {
-                AssertApplyFlow(false, true, false, false, "check,confirm", false);
+                AssertApplyFlow(false, true, false, false, "check,confirm", false, false, true);
             });
             Run("Failed connection never publishes a video or starts an injector", delegate {
-                AssertApplyFlow(false, true, true, false, "check,confirm,connect", false, true);
+                AssertApplyFlow(false, true, true, false, "check,connect", false, true);
             });
             Run("Lost connection obtains restart consent before video validation", delegate {
                 AssertApplyFlow(true, true, true, false, "check,confirm,connect,apply,start", true, false, true);
@@ -840,8 +840,9 @@ namespace CodexDreamSkinManager
                             refreshTask = (Task<bool>)refresh.Invoke(window, new object[] { false, true });
                         }));
                         AssertTrue(!WaitForTask(refreshTask, window.Dispatcher));
-                        AssertEqual("running", running.StatusKind);
-                        AssertEqual("皮肤运行中", GetPrivateField<TextBlock>(window, "statusText").Text);
+                        AssertEqual("error", running.StatusKind);
+                        AssertTrue(running.IsRunning);
+                        AssertEqual("状态暂不可用", GetPrivateField<TextBlock>(window, "statusText").Text);
                         AssertTrue(GetPrivateField<Button>(window, "applyThemeButton").IsEnabled);
                         AssertTrue(GetPrivateField<Button>(window, "refreshButton").IsEnabled);
 
@@ -952,7 +953,7 @@ namespace CodexDreamSkinManager
                         Task operation = (Task)runOperation.Invoke(window, new object[] { action, "restored", true });
                         WaitForTask(operation, window.Dispatcher);
 
-                        AssertEqual("stopped", running.StatusKind);
+                        AssertEqual("error", running.StatusKind);
                         AssertTrue(!running.IsRunning);
                         AssertEqual("应用皮肤",
                             Convert.ToString(GetPrivateField<Button>(window, "applyThemeButton").Content));
@@ -1811,12 +1812,13 @@ namespace CodexDreamSkinManager
             if (lostConnection) File.WriteAllText(Path.Combine(scripts, "restart-required"), "yes");
             if (failLiveApply) File.WriteAllText(Path.Combine(scripts, "fail-live-apply"), "yes");
             File.WriteAllText(Path.Combine(scripts, "start-dream-skin.ps1"), @"
-param([switch]$CheckOnly,[switch]$ConnectOnly,[switch]$RestartExisting)
+param([switch]$CheckOnly,[switch]$ConnectOnly,[switch]$RestartExisting,[switch]$RequireFreshSession)
 $ErrorActionPreference = 'Stop'
 $log = Join-Path $PSScriptRoot 'events.txt'
 if ($CheckOnly) {
   Add-Content $log 'check'
   if (Test-Path (Join-Path $PSScriptRoot 'restart-required')) { throw 'DREAM_SKIN_RESTART_REQUIRED: fixture' }
+  if ($RequireFreshSession -and (Test-Path (Join-Path $PSScriptRoot 'connected'))) { throw 'DREAM_SKIN_RESTART_REQUIRED: fresh session required' }
   return
 }
 if ($ConnectOnly) {
@@ -1827,7 +1829,7 @@ if ($ConnectOnly) {
   return
 }
 if ((Get-Content (Join-Path $PSScriptRoot 'active.txt') -Raw).Trim() -ne 'candidate') { throw 'Started with old theme' }
-if ((Test-Path (Join-Path $PSScriptRoot 'video')) -and -not $RestartExisting) { throw 'Final video startup lost restart consent' }
+if ((Test-Path (Join-Path $PSScriptRoot 'restart-required')) -and -not $RestartExisting) { throw 'Final startup lost restart consent' }
 Add-Content $log 'start'
 ");
             File.WriteAllText(Path.Combine(scripts, "manager-actions.ps1"), @"
@@ -1845,6 +1847,17 @@ if (Test-Path (Join-Path $PSScriptRoot 'fail-live-apply')) {
   return
 }
 [ordered]@{ rendererApplied = (-not $DeferLiveApply -and (Test-Path (Join-Path $PSScriptRoot 'connected'))) } | ConvertTo-Json
+");
+            File.WriteAllText(Path.Combine(scripts, "apply-theme-and-recover.ps1"), @"
+param($SkillRoot,$ThemeDirectory,[switch]$StartOnly,[switch]$RestartExisting)
+$ErrorActionPreference = 'Stop'
+if (-not $StartOnly) { throw 'Video startup did not select StartOnly' }
+if ((Test-Path (Join-Path $PSScriptRoot 'restart-required')) -and -not $RestartExisting) { throw 'Selected startup lost restart consent' }
+Add-Content (Join-Path $PSScriptRoot 'events.txt') 'connect'
+if (Test-Path (Join-Path $PSScriptRoot 'fail-connect')) { throw 'Fixture connection failure' }
+Set-Content (Join-Path $PSScriptRoot 'connected') 'yes'
+& (Join-Path $PSScriptRoot 'manager-actions.ps1') -Action ApplyTheme -SkillRoot $SkillRoot -ThemeDirectory $ThemeDirectory -DeferLiveApply
+& (Join-Path $PSScriptRoot 'start-dream-skin.ps1') -RestartExisting:$RestartExisting
 ");
             MainWindow window = null;
             SynchronizationContext previousContext = SynchronizationContext.Current;

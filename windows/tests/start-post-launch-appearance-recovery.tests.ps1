@@ -15,6 +15,9 @@ $source = $source.Replace(
   '$Injector = ''mock-injector.mjs'''
 )
 $source = $source.Replace('(Split-Path -Parent $PSScriptRoot)', '''mock-skill-root''')
+# Isolate the selected-theme child and optional animation references too.
+$source = $source.Replace('Join-Path $PSScriptRoot ''manager-actions.ps1''', "'mock-manager.ps1'")
+$source = $source.Replace('Join-Path $PSScriptRoot ''play-startup-animation.mjs''', "'mock-animation.mjs'")
 if ($source.Contains('$PSScriptRoot')) {
   throw 'Post-launch failure fixture left a real script-root dependency in isolated source.'
 }

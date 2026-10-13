@@ -99,6 +99,21 @@ function Archive-DreamSkinStateFile {
 }
 function Get-DreamSkinCodexInstall { return [pscustomobject]@{ Executable = 'C:\fixture\Codex.exe' } }
 function Get-DreamSkinCodexProcesses { param([object]$Codex) return @() }
+function Invoke-DreamSkinPowerShellScript {
+  param([string]$ScriptPath,[string[]]$ArgumentList)
+  $parameters = @{}
+  for ($index = 0; $index -lt $ArgumentList.Count; $index++) {
+    $name = $ArgumentList[$index].TrimStart('-')
+    if ($name -eq 'DeferLiveApply') { $parameters[$name] = $true }
+    else { $parameters[$name] = $ArgumentList[++$index] }
+  }
+  try {
+    $output = @(& $ScriptPath @parameters)
+    return [pscustomobject]@{ ExitCode = 0; Output = $output }
+  } catch {
+    return [pscustomobject]@{ ExitCode = 1; Output = @($_.Exception.Message) }
+  }
+}
 function Start-DreamSkinCodex {
   param([object]$Codex)
   Add-Content -LiteralPath $env:RECOVERY_TEST_LOG -Value 'fallback'
@@ -109,7 +124,7 @@ function Start-DreamSkinCodex {
 function Read-DreamSkinTheme {
   param([string]$ThemeDirectory)
   if (-not (Test-Path -LiteralPath (Join-Path $ThemeDirectory 'theme.json'))) { throw 'missing theme' }
-  return [pscustomobject]@{ Theme = [pscustomobject]@{ name = 'Selected' }; ImagePath = (Join-Path $ThemeDirectory 'background.jpg') }
+  return [pscustomobject]@{ Theme = [pscustomobject]@{ name = 'Selected'; appearance = 'auto' }; ImagePath = (Join-Path $ThemeDirectory 'background.jpg') }
 }
 function Assert-DreamSkinImageFile { param([string]$Path) if (-not (Test-Path -LiteralPath $Path)) { throw 'missing image' } }
 function Assert-DreamSkinVideoDecodable {
@@ -123,7 +138,7 @@ function Assert-DreamSkinVideoDecodable {
 param([string]$Action,[string]$SkillRoot,[string]$StateRoot,[string]$ThemeDirectory,[string]$ImagePath,
   [string]$Name,[string]$Appearance,[double]$FocusX,[double]$FocusY,
   [double]$PositionX,[double]$PositionY,[double]$Zoom,[string]$PositionMode,[string]$FramingEnabled,
-  [string]$SafeArea,[string]$TaskMode,[string]$Accent)
+  [string]$SafeArea,[string]$TaskMode,[double]$SurfaceOpacity,[string]$Accent,[switch]$DeferLiveApply)
 if ($Action -eq 'Status') {
   [ordered]@{ statusKind = (Get-Content -LiteralPath $env:RECOVERY_TEST_KIND -Raw).Trim() } | ConvertTo-Json
 } elseif ($Action -eq 'ApplyTheme') {
@@ -146,11 +161,15 @@ Add-Content -LiteralPath $env:RECOVERY_TEST_LOG -Value 'restore'
 Remove-Item -LiteralPath (Join-Path $env:LOCALAPPDATA 'CodexDreamSkin\state.json') -Force -ErrorAction SilentlyContinue
 '@
   Write-Utf8 (Join-Path $scripts 'start-dream-skin.ps1') @'
-param([switch]$RestartExisting,[switch]$ConnectOnly)
-if ($ConnectOnly) {
+param([switch]$RestartExisting,[string]$RequestedThemeAppearance,[string[]]$ThemeApplyArguments = @())
+if ($ThemeApplyArguments.Count -gt 0) {
+  if (-not $RestartExisting) { throw 'Selected video recovery lost restart consent' }
+  if ($RequestedThemeAppearance -ne 'auto') { throw 'Selected appearance was not forwarded' }
+  if ($ThemeApplyArguments -notcontains '-DeferLiveApply') { throw 'Selected theme must defer live apply until watcher startup' }
   Add-Content -LiteralPath $env:RECOVERY_TEST_LOG -Value 'connect'
   Set-Content -LiteralPath (Join-Path $env:LOCALAPPDATA 'CodexDreamSkin\connected') -Value 'ready'
-  return
+  $result = Invoke-DreamSkinPowerShellScript -ScriptPath (Join-Path $PSScriptRoot 'manager-actions.ps1') -ArgumentList $ThemeApplyArguments
+  if ($result.ExitCode -ne 0) { throw ($result.Output -join "`r`n") }
 }
 Add-Content -LiteralPath $env:RECOVERY_TEST_LOG -Value 'start'
 '@

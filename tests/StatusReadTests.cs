@@ -33,13 +33,16 @@ if ($Action -ne 'Status' -or -not $SkipThemes) { throw 'Unexpected expensive rea
                     AssertEqual("皮肤服务运行中", GetPrivateField<TextBlock>(window, "statusText").Text);
                 });
             });
-            Run("Quiet refresh failure repaints the retained runtime state", delegate
+            Run("Quiet refresh failure reports unknown health and retains runtime fields", delegate
             {
                 WithStatusWindow("throw 'read failed'", delegate(MainWindow window, string root)
                 {
                     AssertTrue(!WaitForTask(InvokeRefresh(window, false, false), window.Dispatcher));
-                    AssertEqual("皮肤运行中", GetPrivateField<TextBlock>(window, "statusText").Text);
-                    AssertEqual("running", GetPrivateField<DreamSkinStatus>(window, "currentStatus").StatusKind);
+                    AssertEqual("状态暂不可用", GetPrivateField<TextBlock>(window, "statusText").Text);
+                    DreamSkinStatus retained = GetPrivateField<DreamSkinStatus>(window, "currentStatus");
+                    AssertEqual("error", retained.StatusKind);
+                    AssertTrue(retained.IsRunning);
+                    AssertEqual("old-active", retained.ActiveThemeId);
                 });
             });
             Run("Read and mutation timeout policies remain separate", delegate
