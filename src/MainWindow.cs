@@ -286,6 +286,7 @@ namespace CodexDreamSkinManager
             messageText.VerticalAlignment = VerticalAlignment.Center;
             footer.Children.Add(messageText);
             Button donateButton = SecondaryButton("打赏");
+            donateButton.Visibility = Visibility.Collapsed; // 暂时隐藏打赏入口，保留相关功能。
             donateButton.Margin = new Thickness(16, 0, 0, 0);
             donateButton.ToolTip = "支持持续优化";
             AutomationProperties.SetName(donateButton, "DonateButton");
