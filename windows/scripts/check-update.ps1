@@ -227,7 +227,8 @@ function Get-DreamSkinLatestRelease {
 function Install-DreamSkinUpdate {
   param(
     [Parameter(Mandatory = $true)][object]$Result,
-    [string]$Expected = ''
+    [string]$Expected = '',
+    [string]$ApprovedHash = ''
   )
   if (-not $Result.updateAvailable) { throw 'No newer release is available to install.' }
   if ($Expected) {
@@ -235,6 +236,9 @@ function Install-DreamSkinUpdate {
     if (('v' + $expectedParsed.ToString()) -cne "$($Result.latestVersion)") {
       throw "The latest release changed from $Expected to $($Result.latestVersion). Check for updates again."
     }
+  }
+  if ($ApprovedHash -and ($ApprovedHash.Length -ne 64 -or $ApprovedHash -cnotmatch '^[a-f0-9]{64}$' -or $Result.installerSha256 -cne $ApprovedHash)) {
+    throw 'The approved installer identity changed; check for updates again.'
   }
 
   Assert-DreamSkinPlainDirectory -Path $script:DreamSkinStateRoot

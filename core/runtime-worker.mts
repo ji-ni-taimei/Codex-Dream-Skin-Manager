@@ -1,0 +1,102 @@
+// Fixed script helper; capture/check are read-only business operations.
+import path from "node:path";
+import { ContractError, parseRequest, PROTOCOL, record, RUNTIME_METHODS } from "../contracts/manager.mjs";
+import type { RuntimeCommand } from "../contracts/manager.mjs";
+import { runtimePreflight } from "./runtime-preflight.mjs";
+import { engineRevision, runtimeEngine } from "./runtime-engine.mjs";
+import { durableJson, privateDirectory } from "./write-files.mjs";
+import { dataRoot } from "../platforms/factory.mjs";
+import { activeTheme } from "./active-theme.mjs";
+import { appearanceState, runtimeTargets } from "./runtime-targets.mjs";
+import { themeDetails } from "./theme-model.mjs";
+import { fileBytes, jsonObject, MAX_CONFIG_BYTES, optionalBytes, sha256 } from "./local-files.mjs";
+
+try {
+  const [action, applicationRoot, probeText, requestFile, extra] = process.argv.slice(2);
+  if (action === "engine-revision" || action === "record-start") {
+    if (!applicationRoot || !path.isAbsolute(applicationRoot) || requestFile || extra) throw new ContractError("INVALID_REQUEST", "Invalid engine launch helper invocation.");
+    const platform = process.platform === "win32" ? "windows" : "macos", state = dataRoot();
+    const revision = await engineRevision(applicationRoot, platform);
+    if (action === "record-start") {
+      if (probeText !== revision) throw new ContractError("RUNTIME_CHANGED", "The engine package changed during startup.");
+      const bytes = await fileBytes(path.join(state, "state.json"), state, 65536), current = jsonObject(bytes);
+      const injector = path.join(applicationRoot, platform, "scripts", "injector.mjs");
+      const actual = typeof current.injectorPath === "string" ? path.resolve(current.injectorPath) : "";
+      if ((platform === "windows" ? actual.toLowerCase() !== injector.toLowerCase() : actual !== injector) ||
+          !Number.isSafeInteger(current.injectorPid) || typeof current.injectorStartedAt !== "string" || typeof current.nodePath !== "string") throw new ContractError("RUNTIME_CHANGED", "The launch does not belong to this engine package.");
+      const directory = path.join(state, "manager-operations"); await privateDirectory(directory);
+      await durableJson(path.join(directory, "engine-session.json"), state, { schemaVersion: 1, pid: current.injectorPid, startedAt: current.injectorStartedAt, injectorPath: current.injectorPath, nodePath: current.nodePath, engineRevision: revision });
+    } else if (probeText) throw new ContractError("INVALID_REQUEST", "Engine revision does not accept a probe.");
+    process.stdout.write(JSON.stringify({ engineRevision: revision }) + "\n");
+  } else {
+  if (!applicationRoot || !path.isAbsolute(applicationRoot) || !["capture", "check", "check-appearance", "record-engine"].includes(action ?? "") || !probeText || extra) throw new ContractError("INVALID_REQUEST", "Invalid runtime helper invocation.");
+  const state = dataRoot(), platform = process.platform === "win32" ? "windows" : "macos";
+  const watcherIdentity = (current: Record<string, unknown>) => sha256([Buffer.from(JSON.stringify([current.injectorPid, current.injectorStartedAt, current.injectorPath, current.nodePath]))]);
+  async function descriptor() {
+    const requests = path.join(state, "manager-operations", "requests");
+    if (!requestFile || path.dirname(path.resolve(requestFile)) !== requests || !/^[a-f0-9-]{36}\.json$/.test(path.basename(requestFile))) throw new ContractError("INVALID_REQUEST", "Invalid runtime descriptor identity.");
+    const request = jsonObject(await fileBytes(requestFile, requests, 16384));
+    if (!record(request.runtimeCommand) || request.schemaVersion !== 1) throw new ContractError("INVALID_REQUEST", "Missing runtime command.");
+    const command = parseRequest({ protocol: PROTOCOL, kind: "request", requestId: "runtime-worker", ...request.runtimeCommand });
+    if (!(RUNTIME_METHODS as readonly string[]).includes(command.method)) throw new ContractError("INVALID_REQUEST", "Invalid runtime method.");
+    return { request, command: command as RuntimeCommand };
+  }
+  if (action === "check-appearance") {
+    const { request, command } = await descriptor(), appearance = await appearanceState(state);
+    if (command.method !== "skin.restore" || request.confirmed !== true || !appearance.restoreAvailable || appearance.appearanceRevision !== request.appearanceRevision) throw new ContractError("RUNTIME_CHANGED", "The confirmed appearance backup or config changed.");
+    process.stdout.write(JSON.stringify(appearance) + "\n");
+  } else {
+  const probe = jsonObject(probeText.startsWith("base64:") ? Buffer.from(probeText.slice(7), "base64") : Buffer.from(probeText));
+  if (typeof probe.fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(probe.fingerprint) ||
+      ["paused", "processRunning", "startRequired", "recoveryRequired"].some(key => typeof probe[key] !== "boolean") ||
+      probe.runtimeSessionId !== null && (typeof probe.runtimeSessionId !== "string" || !/^[a-f0-9]{64}$/.test(probe.runtimeSessionId))) throw new ContractError("BACKEND_UNAVAILABLE", "Invalid runtime identity result.");
+  if (action === "record-engine") {
+    const { request, command } = await descriptor();
+    const revision = await engineRevision(applicationRoot, platform);
+    const bytes = await fileBytes(path.join(state, "state.json"), state, 65536), current = jsonObject(bytes);
+    const injector = path.join(applicationRoot, platform, "scripts", "injector.mjs");
+    const samePath = (a: unknown, b: string) => typeof a === "string" && (platform === "windows" ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b));
+    if (command.method !== "runtime.upgrade" || request.confirmed !== true || request.expectedEngineRevision !== revision ||
+        probe.watcherVerified !== true || !probe.runtimeSessionId || probe.paused || !samePath(current.injectorPath, injector) ||
+        request.previousWatcherIdentity === watcherIdentity(current) ||
+        !Number.isSafeInteger(current.injectorPid) || typeof current.injectorStartedAt !== "string" || typeof current.nodePath !== "string" ||
+        !Buffer.from(bytes).equals(await fileBytes(path.join(state, "state.json"), state, 65536))) throw new ContractError("RUNTIME_CHANGED", "The new engine launch identity could not be proven.");
+    const directory = path.join(state, "manager-operations"); await privateDirectory(directory);
+    await durableJson(path.join(directory, "engine-session.json"), state, { schemaVersion: 1, pid: current.injectorPid, startedAt: current.injectorStartedAt, injectorPath: current.injectorPath, nodePath: current.nodePath, engineRevision: revision });
+    process.stdout.write(JSON.stringify({ runtimeUpgraded: true }) + "\n");
+  } else {
+  const targets = await runtimeTargets(applicationRoot, state);
+  const before = await optionalBytes(path.join(state, "state.json"), state);
+  const pause = platform === "windows" ? await optionalBytes(path.join(state, "paused"), state, 16384) : null;
+  const activeDirectory = path.join(state, platform === "windows" ? "active-theme" : "theme");
+  const activeConfig = await optionalBytes(path.join(activeDirectory, "theme.json"), state, MAX_CONFIG_BYTES, 0);
+  let local: Awaited<ReturnType<typeof activeTheme>> = null, details: Awaited<ReturnType<typeof themeDetails>> | null = null;
+  try { local = await activeTheme(state, platform); details = local ? await themeDetails(local) : null; }
+  catch (error) {
+    // A damaged active payload must not prevent reset or selective restore.
+    // Keep its raw config in the runtime identity, and disable active actions.
+    if (!(error instanceof ContractError && ["THEME_INVALID", "THEME_NOT_FOUND"].includes(error.code)) && !(record(error) && error.code === "ENOENT")) throw error;
+    local = null;
+  }
+  const after = await optionalBytes(path.join(state, "state.json"), state);
+  const engine = await runtimeEngine(applicationRoot, state, platform, after, probe.watcherVerified === true);
+  const pauseAfter = platform === "windows" ? await optionalBytes(path.join(state, "paused"), state, 16384) : null;
+  if ((await appearanceState(state)).appearanceRevision !== targets.appearanceRevision) throw new ContractError("RUNTIME_CHANGED", "Appearance inputs changed during observation.");
+  const same = (a: Uint8Array | null, b: Uint8Array | null) => a === null ? b === null : b !== null && Buffer.from(a).equals(b);
+  if (!same(activeConfig, await optionalBytes(path.join(activeDirectory, "theme.json"), state, MAX_CONFIG_BYTES, 0)) || !same(before, after) || !same(pause, pauseAfter) || platform === "windows" && probe.paused !== (pause !== null) || platform === "macos" && probe.paused !== (before !== null && jsonObject(before).session === "paused")) throw new ContractError("RUNTIME_CHANGED", "Runtime state changed while reading; refresh before controlling the skin.");
+  const runtime = { ...probe, ...targets, ...engine, watcherIdentity: before ? watcherIdentity(jsonObject(before)) : null, activeTheme: local?.ref ?? null, activeRevision: details?.revision ?? null,
+    revision: sha256([Buffer.from(JSON.stringify({ fingerprint: probe.fingerprint, paused: probe.paused, active: details?.revision ?? null, activeConfigPresent: activeConfig !== null, statePresent: before !== null, pausePresent: pause !== null, targets, engine })), before ?? new Uint8Array(), pause ?? new Uint8Array(), activeConfig ?? new Uint8Array()]),
+    rendererRemoved: null, rendererUnavailable: probe.processRunning === false && probe.runtimeSessionId === null };
+  if (action === "check") {
+    const { request, command } = await descriptor();
+    const preflight = runtimePreflight(command, runtime as unknown as import("./ports/runtime.mjs").RuntimeState);
+    if (command.method === "runtime.upgrade" && request.expectedEngineRevision !== engine.engineRevision) throw new ContractError("RUNTIME_CHANGED", "The selected engine package changed.");
+    if (request.preflightFingerprint !== probe.fingerprint || request.appearanceRevision !== targets.appearanceRevision) throw new ContractError("RUNTIME_CHANGED", "The runtime changed after the selected status snapshot.");
+    if (preflight.requiresConfirmation && request.confirmed !== true || command.method !== "skin.pause" && command.method !== "skin.restore" &&
+        (request.source !== (command.method === "skin.reset" ? "default" : "active") || request.expectedRevision !== preflight.targetRevision || !record(request.theme) || request.theme.id !== preflight.targetTheme?.id || request.theme.source !== preflight.targetTheme?.source)) throw new ContractError("RUNTIME_UNAVAILABLE", "The runtime target or explicit confirmation is no longer valid.");
+  } else if (requestFile) throw new ContractError("INVALID_REQUEST", "Capture does not accept a descriptor.");
+  process.stdout.write(JSON.stringify(runtime) + "\n");
+  }
+  }
+  }
+} catch (error) { process.stderr.write(`${error instanceof ContractError ? error.code : "IO_ERROR"}: Runtime state could not be captured consistently.\n`); process.exitCode = 1; }

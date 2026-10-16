@@ -247,7 +247,7 @@ test("assertPayloadIntegrity only parses and never executes the payload", () => 
 });
 
 test("the macOS injector builds payloads with function replacements only", async () => {
-  const source = await fs.readFile(path.join(macosRoot, "scripts", "injector.mjs"), "utf8");
+  const source = await fs.readFile(path.join(macosRoot, "scripts", "theme-payload.mjs"), "utf8");
   const callPattern = /\.replace\(\s*"(__DREAM_SKIN_[A-Z0-9_]+_JSON__)"\s*,/g;
   const seen = [];
   for (const match of source.matchAll(callPattern)) {

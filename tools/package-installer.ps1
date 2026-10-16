@@ -63,8 +63,10 @@ foreach ($requiredPath in @(
     (Join-Path $package 'THIRD_PARTY\Codex-Dream-Skin\LICENSE'),
     (Join-Path $package 'THIRD_PARTY\Codex-Dream-Skin\NOTICE.md'),
     (Join-Path $package 'THIRD_PARTY\Node.js\LICENSE'),
-    (Join-Path $package 'windows\scripts\manager-actions.ps1'),
-    (Join-Path $package 'windows\scripts\apply-theme-and-recover.ps1'),
+    (Join-Path $package 'windows\scripts\platform-theme.ps1'),
+    (Join-Path $package 'shared\core\main.mjs'),
+    (Join-Path $package 'ui\manager\index.html'),
+    (Join-Path $package 'runtime\node\node.exe'),
     (Join-Path $package 'windows\presets\catalog.json'),
     (Join-Path $package 'windows\runtime\node\node.exe'),
     $iss

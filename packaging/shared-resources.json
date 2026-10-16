@@ -1,0 +1,63 @@
+{
+  "schema": "dreamskin-shared-resources/1",
+  "platforms": {
+    "windows": {
+      "files": [
+        "VERSION",
+        "scripts/apply-community-theme.ps1",
+        "scripts/check-update.ps1",
+        "scripts/common-windows.ps1",
+        "scripts/config-utf8.ps1",
+        "scripts/injector.mjs",
+        "scripts/localization-windows.ps1",
+        "scripts/manager-community.ps1",
+        "scripts/manager-library.ps1",
+        "scripts/manager-platform.ps1",
+        "scripts/manager-trash.ps1",
+        "scripts/manager-updates.ps1",
+        "scripts/manager-validate-media.ps1",
+        "scripts/play-startup-animation.mjs",
+        "scripts/restore-dream-skin.ps1",
+        "scripts/runtime-version.ps1",
+        "scripts/start-dream-skin.ps1",
+        "scripts/theme-windows.ps1",
+        "scripts/verify-dream-skin.ps1",
+        "scripts/platform-theme.ps1"
+      ]
+    },
+    "macos": {
+      "files": [
+        "VERSION",
+        "scripts/apply-community-theme-macos.sh",
+        "scripts/check-update-macos.sh",
+        "scripts/common-macos.sh",
+        "scripts/doctor-macos.sh",
+        "scripts/gui-install-update.sh",
+        "scripts/gui-update.mjs",
+        "scripts/gui-update.sh",
+        "scripts/injector.mjs",
+        "scripts/install-dream-skin-macos.sh",
+        "scripts/list-manager-themes-macos.mjs",
+        "scripts/localization-macos.sh",
+        "scripts/manager-community.sh",
+        "scripts/manager-library.sh",
+        "scripts/manager-maintenance.sh",
+        "scripts/manager-platform.sh",
+        "scripts/manager-trash-macos.js",
+        "scripts/pause-dream-skin-macos.sh",
+        "scripts/restore-dream-skin-macos.sh",
+        "scripts/seed-gui-presets-macos.sh",
+        "scripts/snapshot-active-theme-macos.sh",
+        "scripts/stage-theme.mjs",
+        "scripts/start-dream-skin-macos.sh",
+        "scripts/status-dream-skin-macos.sh",
+        "scripts/switch-theme-macos.sh",
+        "scripts/theme-config.mjs",
+        "scripts/theme-content-fingerprint.mjs",
+        "scripts/theme-switch-lock-macos.sh",
+        "scripts/validate-image-macos.mjs",
+        "scripts/verify-dream-skin-macos.sh"
+      ]
+    }
+  }
+}

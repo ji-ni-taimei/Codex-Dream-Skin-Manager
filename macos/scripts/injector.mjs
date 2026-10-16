@@ -1,19 +1,26 @@
+export { assessRendererVerification } from "./renderer-verification.mjs";
+import { createRendererVerifier, assessRendererVerification } from "./renderer-verification.mjs";
+import { createThemePayload } from "./theme-payload.mjs";
+import { operationUiExpression as sharedOperationUiExpression, bindMediaFileToSession, applyLoadedToSession, removeFromSession, verifyRemovedSession, cleanupExcludedSurface } from "./renderer-session.mjs";
+export { bindMediaFileToSession, applyLoadedToSession, cleanupExcludedSurface };
+import { MEDIA_CACHE_ROOT, materializeMediaSnapshot } from "./media-cache.mjs";
+export { materializeMediaSnapshot };
+import { createCdpTransport } from "./cdp-transport.mjs";
+import { createInjectionEngine, discoverCodexTargets } from "./injection-engine.mjs";
+import {
+  WatcherLifecycle, DiscoveryRetry, DISCOVERY_BACKOFF, nextDiscoveryDelayMs, discoveryLogIntervalMs,
+} from "./watcher-engine.mjs";
+export { DISCOVERY_BACKOFF, nextDiscoveryDelayMs, discoveryLogIntervalMs };
 import { probeVideoDecode } from "./video-decode-probe.mjs";
 import fs from "node:fs/promises";
-import { constants as fsConstants, watch as watchFs } from "node:fs";
+import { watch as watchFs } from "node:fs";
 import { execFile } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { Script } from "node:vm";
-import { MAX_IMAGE_FRAMES, readImageAnimation, readImageMetadata } from "./image-metadata.mjs";
-import {
-  normalizeThemeColor,
-  normalizeThemeText,
-} from "../assets/theme-package-validator.mjs";
-import { decodeAndValidateSafeCss } from "../assets/safe-css-validator.mjs";
+
 
 const execFileAsync = promisify(execFile);
 const scriptPath = fileURLToPath(import.meta.url);
@@ -45,147 +52,18 @@ const stableTestidLiteral = (testid) => {
   }
   return JSON.stringify(`[data-testid="${testid}"]`);
 };
+const operationUiExpression = (action, token, state, message) => sharedOperationUiExpression(action, token, state, message, selectorLiteral);
 const SKIN_VERSION = "2.0.3";
 // .github/workflows/ci.yml's version-consistency check greps this file for a
 // literal `const SKIN_VERSION = "...";` line, so the export stays a separate
 // statement rather than an inline `export const`.
 export { SKIN_VERSION };
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
-const CDP_ID_PATTERN = /^[A-Za-z0-9._-]{1,200}$/;
-const MAX_ART_BYTES = 128 * 1024 * 1024;
-const MAX_VIDEO_BYTES = 128 * 1024 * 1024;
-const MAX_SAFE_CSS_BYTES = 256 * 1024;
-const MAX_MEDIA_CACHE_BYTES = 256 * 1024 * 1024;
-const MAX_MEDIA_CACHE_FILES = 16;
-const STALE_MEDIA_TEMP_MS = 60 * 60 * 1000;
-const MEDIA_CACHE_PARENT = process.platform === "win32"
-  ? path.join(
-      process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"),
-      "CodexDreamSkinManager", "media-v1",
-    )
-  : process.platform === "darwin"
-    ? path.join(os.homedir(), "Library", "Caches", "CodexDreamSkinManager", "media-v1")
-    : path.join(os.homedir(), ".cache", "codex-dream-skin", "media-v1");
-const MEDIA_CACHE_INSTANCE = `${process.pid}.${randomUUID()}`;
-const MEDIA_CACHE_ROOT = path.join(MEDIA_CACHE_PARENT, MEDIA_CACHE_INSTANCE);
-const MEDIA_CACHE_HEARTBEAT_MS = 30000;
-const MEDIA_CACHE_STALE_MS = 10 * 60 * 1000;
-let mediaCacheHeartbeat = null;
-const OPERATION_UI_HOST_ID = "chatgpt-dream-skin-operation";
-const OPERATION_UI_REGISTRY_KEY = "__CHATGPT_DREAM_SKIN_OPERATION_UI__";
 const OPERATION_KINDS = new Set(["apply", "pause", "switch"]);
 const OPERATION_UI_STATES = new Set(["success", "error", "cancelled"]);
 const MIN_RENDERER_WIDTH = 320;
 const MIN_RENDERER_HEIGHT = 240;
 const MAX_RENDERER_DIMENSION = 65536;
-const OPERATION_UI_CSS = `
-  :host {
-    all: initial;
-    position: fixed;
-    top: var(--dream-skin-operation-top, 0px);
-    left: var(--dream-skin-operation-left, 0px);
-    width: var(--dream-skin-operation-width, 100vw);
-    height: var(--dream-skin-operation-height, 100vh);
-    z-index: 2147483647;
-    pointer-events: none;
-    opacity: 0;
-    display: grid;
-    place-items: center;
-    transition: opacity 180ms cubic-bezier(0.16, 1, 0.3, 1);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  }
-  :host([data-visible="true"]) {
-    opacity: 1;
-  }
-  .status {
-    box-sizing: border-box;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    width: min(220px, calc(100% - 32px));
-    min-height: 112px;
-    padding: 18px 20px;
-    border: 1px solid rgba(238, 239, 244, 0.16);
-    border-radius: 8px;
-    background: rgba(32, 33, 38, 0.94);
-    color: #f3f3f6;
-    box-shadow: 0 8px 24px rgba(12, 14, 19, 0.22);
-    font-size: 13px;
-    font-weight: 550;
-    line-height: 1.35;
-    letter-spacing: 0;
-    text-align: center;
-    transform: translateY(-4px) scale(0.98);
-    transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  :host([data-visible="true"]) .status {
-    transform: translateY(0) scale(1);
-  }
-  :host([data-tone="light"]) .status {
-    border-color: #d9dbe3;
-    background: rgba(248, 248, 251, 0.96);
-    color: #25262c;
-    box-shadow: 0 8px 24px rgba(31, 35, 48, 0.14);
-  }
-  .indicator {
-    box-sizing: border-box;
-    flex: 0 0 22px;
-    width: 22px;
-    height: 22px;
-    color: #78a8f5;
-  }
-  :host([data-state="loading"]) .indicator {
-    border: 2px solid currentColor;
-    border-top-color: transparent;
-    border-radius: 50%;
-    animation: dream-skin-operation-spin 720ms linear infinite;
-  }
-  :host([data-state="success"]) .indicator,
-  :host([data-state="error"]) .indicator,
-  :host([data-state="cancelled"]) .indicator {
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    font-size: 16px;
-    font-weight: 750;
-  }
-  :host([data-state="success"]) .indicator {
-    color: #53b77b;
-  }
-  :host([data-state="success"]) .indicator::before {
-    content: "✓";
-  }
-  :host([data-state="error"]) .indicator {
-    color: #e26d7e;
-  }
-  :host([data-state="error"]) .indicator::before {
-    content: "!";
-  }
-  :host([data-state="cancelled"]) .indicator {
-    color: #a5a7b0;
-  }
-  :host([data-state="cancelled"]) .indicator::before {
-    content: "×";
-  }
-  .message {
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-  @keyframes dream-skin-operation-spin {
-    to { transform: rotate(360deg); }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    :host, .status { transition: none; }
-    :host([data-state="loading"]) .indicator {
-      animation: none;
-      border-top-color: currentColor;
-      opacity: 0.65;
-    }
-  }
-`;
-let staticPayloadAssets = null;
+
 let operationSequence = 0;
 
 function hasReasonableDimensions(width, height) {
@@ -246,64 +124,6 @@ export function classifyNativeWindowError(error) {
   };
 }
 
-export function assessRendererVerification(renderer, nativeWindow, expected) {
-  const result = renderer && typeof renderer === "object" ? { ...renderer } : {};
-  const viewportWidth = Number(result.viewport?.width);
-  const viewportHeight = Number(result.viewport?.height);
-  const viewportPass = hasReasonableDimensions(viewportWidth, viewportHeight);
-  const documentVisible = result.documentVisibility === "visible";
-  const settingsRoute = result.scope?.baseState === "settings";
-  const homeRoute = result.scope?.baseState === "home" || result.homeRoute || result.homePresent;
-  const l1ScopePass = result.scope?.level === "L1" &&
-    Array.isArray(result.scope?.missingL1) && result.scope.missingL1.length === 0;
-  const genericStructurePass = l1ScopePass && Boolean(result.genericMain?.visible) &&
-    (Boolean(result.genericInput?.visible) || Boolean(homeRoute && result.homePresent));
-  const l0StructurePass = result.scope?.level === "L0" &&
-    settingsRoute && Boolean(result.settings?.visible);
-  const structurePass = l0StructurePass || (l1ScopePass && (
-    (Boolean(result.shell?.visible) && Boolean(result.sidebar?.visible)) || genericStructurePass
-  ));
-  const nativeWindowPass = nativeWindow?.status === "ready";
-  const fallbackWindowPass = nativeWindow?.status === "unsupported";
-  const windowPass = documentVisible && viewportPass
-    && (nativeWindowPass || fallbackWindowPass);
-  const basePass = result.installed && result.version === expected.skinVersion
-    && result.stylePresent && result.businessClassPollution === 0
-    && structurePass && windowPass && !result.documentOverflow?.x;
-  const payloadPass = (!expected.expectedThemeId || result.themeId === expected.expectedThemeId)
-    && (!expected.expectedRevision || result.revision === expected.expectedRevision);
-  const visibleSuggestionLabels = Array.isArray(result.suggestionLabels)
-    ? result.suggestionLabels.filter((item) => item?.visible) : [];
-  const homeFallbackVisible = Boolean(homeRoute && result.homePresent && result.genericMain?.visible);
-  const homePass = !homeRoute || (
-    result.homePresent && ((result.hero?.visible && result.hero.width >= 280
-      && result.hero.height >= 120) || homeFallbackVisible)
-    && (result.visibleCardCount === 0 || (
-      visibleSuggestionLabels.length >= result.visibleCardCount
-      && result.suggestionLabelColorsMatch
-    ))
-  );
-
-  result.nativeWindow = nativeWindow;
-  result.checks = {
-    documentVisible,
-    fallbackWindowPass,
-    nativeWindowPass,
-    payloadPass,
-    structurePass,
-    viewportPass,
-    windowPass,
-  };
-  result.pass = Boolean(basePass && homePass && payloadPass);
-  result.expectedThemeId = expected.expectedThemeId;
-  result.expectedRevision = expected.expectedRevision;
-  result.softNotes = {
-    projectButtonOptional: !result.projectButton?.visible,
-    composerOptionalOnNonTaskRoutes: !result.composer?.visible,
-    suggestionCardsOptional: homeRoute && result.visibleCardCount === 0,
-  };
-  return result;
-}
 
 function parseArgs(argv) {
   const options = {
@@ -327,6 +147,7 @@ function parseArgs(argv) {
     else if (arg === "--watch") options.mode = "watch";
     else if (arg === "--verify") options.mode = "verify";
     else if (arg === "--remove") options.mode = "remove";
+    else if (arg === "--verify-removed") options.mode = "verify-removed";
     else if (arg === "--begin-operation") options.mode = "begin-operation";
     else if (arg === "--finish-operation") options.mode = "finish-operation";
     else if (arg === "--check-payload") options.mode = "check";
@@ -354,742 +175,38 @@ function parseArgs(argv) {
   if (options.mode === "begin-operation" && !OPERATION_KINDS.has(options.operationKind)) {
     throw new Error("Begin operation requires --operation-kind apply, pause, or switch");
   }
+  if (options.mode === "verify-removed" && (options.reload || options.screenshot)) throw new Error("Read-only removal inspection cannot reload or capture the renderer");
   if (options.mode === "finish-operation") {
     if (!OPERATION_UI_STATES.has(options.operationUiState)) {
       throw new Error("Finish operation requires --operation-ui-state success, error, or cancelled");
     }
     if (!options.operationToken) throw new Error("Finish operation requires --operation-token");
     if (typeof options.operationMessage !== "string" || options.operationMessage.length > 240
-      || /[\r\n]/.test(options.operationMessage)) {
+      || /[\n]/.test(options.operationMessage)) {
       throw new Error("Finish operation requires a single-line --operation-message up to 240 characters");
     }
   }
   return options;
 }
 
-function validatedDebuggerUrl(target, port) {
-  const url = new URL(target.webSocketDebuggerUrl);
-  const pathIsValid = /^\/devtools\/page\/[A-Za-z0-9._-]{1,200}$/.test(url.pathname);
-  if (
-    url.protocol !== "ws:" || !LOOPBACK_HOSTS.has(url.hostname) || Number(url.port) !== port
-    || url.username || url.password || url.search || url.hash || !pathIsValid
-  ) {
-    throw new Error("Rejected a CDP WebSocket URL outside the allowed loopback page endpoint shape");
-  }
-  return url.href;
-}
-
-function isValidCdpPageTarget(item, port) {
-  if (
-    item?.type !== "page" || !item.url?.startsWith("app://")
-    || typeof item.id !== "string" || !CDP_ID_PATTERN.test(item.id)
-    || !item.webSocketDebuggerUrl
-  ) return false;
-  try {
-    const debuggerUrl = new URL(validatedDebuggerUrl(item, port));
-    return debuggerUrl.pathname === `/devtools/page/${item.id}`;
-  } catch {
-    return false;
-  }
-}
-
-class CdpSession {
-  constructor(target, port) {
-    this.target = target;
-    this.ws = new WebSocket(validatedDebuggerUrl(target, port));
-    this.nextId = 1;
-    this.pending = new Map();
-    this.listeners = new Map();
-    this.closed = false;
-  }
-
-  async open() {
-    await new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        try { this.ws.close(); } catch {}
-        reject(new Error("CDP WebSocket open timed out"));
-      }, 5000);
-      this.ws.addEventListener("open", () => { clearTimeout(timeout); resolve(); }, { once: true });
-      this.ws.addEventListener("error", () => { clearTimeout(timeout); reject(new Error("CDP WebSocket open failed")); }, { once: true });
-    });
-    this.ws.addEventListener("message", (event) => this.onMessage(event));
-    this.ws.addEventListener("error", () => this.close());
-    this.ws.addEventListener("close", () => {
-      this.closed = true;
-      for (const waiter of this.pending.values()) {
-        clearTimeout(waiter.timeout);
-        waiter.reject(new Error("CDP socket closed"));
-      }
-      this.pending.clear();
-    });
-    await this.send("Runtime.enable");
-    await this.send("Page.enable");
-    return this;
-  }
-
-  onMessage(event) {
-    let message;
-    try {
-      message = JSON.parse(String(event.data));
-    } catch {
-      this.close();
-      return;
-    }
-    if (!message || typeof message !== "object") {
-      this.close();
-      return;
-    }
-    if (message.id) {
-      const waiter = this.pending.get(message.id);
-      if (!waiter) return;
-      clearTimeout(waiter.timeout);
-      this.pending.delete(message.id);
-      if (message.error) {
-        const error = new Error(`${message.error.message} (${message.error.code})`);
-        error.cdpCode = message.error.code;
-        waiter.reject(error);
-      } else waiter.resolve(message.result);
-      return;
-    }
-    for (const listener of this.listeners.get(message.method) ?? []) {
-      try { listener(message.params ?? {}); } catch (error) {
-        console.error(`[dream-skin] CDP listener failed: ${error.message}`);
-      }
-    }
-  }
-
-  on(method, listener) {
-    const listeners = this.listeners.get(method) ?? [];
-    listeners.push(listener);
-    this.listeners.set(method, listeners);
-  }
-
-  send(method, params = {}, timeoutMs = 10000) {
-    if (this.closed) return Promise.reject(new Error("CDP session is closed"));
-    return new Promise((resolve, reject) => {
-      const id = this.nextId++;
-      const timeout = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`CDP command timed out: ${method}`));
-      }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timeout });
-      try {
-        this.ws.send(JSON.stringify({ id, method, params }));
-      } catch (error) {
-        clearTimeout(timeout);
-        this.pending.delete(id);
-        reject(error);
-      }
-    });
-  }
-
-  async evaluate(expression, timeoutMs = 10000) {
-    const result = await this.send("Runtime.evaluate", {
-      expression,
-      awaitPromise: true,
-      returnByValue: true,
-      userGesture: false,
-    }, timeoutMs);
-    if (result.exceptionDetails) {
-      const detail = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text;
-      throw new Error(`Renderer evaluation failed: ${detail}`);
-    }
-    return result.result?.value;
-  }
-
-  close() {
-    for (const waiter of this.pending.values()) {
-      clearTimeout(waiter.timeout);
-      waiter.reject(new Error("CDP session closed"));
-    }
-    this.pending.clear();
-    if (!this.closed) {
-      try { this.ws.close(); } catch {}
-    }
-    this.closed = true;
-  }
-}
-
-async function listAppTargets(port) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2000);
-  try {
-    const response = await fetch(`http://127.0.0.1:${port}/json/list`, {
-      redirect: "error",
-      signal: controller.signal,
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const targets = await response.json();
-    if (!Array.isArray(targets)) throw new Error("CDP target list was not an array");
-    return targets.filter((item) => isValidCdpPageTarget(item, port));
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function probeSession(session) {
-  return session.evaluate(`(() => {
-    const initialRoute = new URLSearchParams(String(location.search || ''))
-      .get('initialRoute') || '';
-    const pathname = String(location.pathname || '');
-    const excludedPetSurface = location.protocol === 'app:' && (
-      pathname.endsWith('/avatar-overlay-composition-surface.html') ||
-      initialRoute === '/avatar-overlay' || initialRoute.startsWith('/avatar-overlay/')
-    );
-    const genericCodexSurface = () => {
-      if (location.protocol !== 'app:') return false;
-      const main = document.querySelector('main, [role="main"]');
-      const input = document.querySelector('textarea, [contenteditable="true"], [role="textbox"]');
-      const branded = Boolean(document.querySelector(
-        ${stableTestidLiteral("app-shell-header-context-menu-surface")},
-      ));
-      return Boolean(main && input && branded);
-    };
-    const markers = {
-      shell: Boolean(document.querySelector(${selectorLiteral("shell-main")})),
-      sidebar: Boolean(document.querySelector(${selectorLiteral("left-panel")})),
-      composer: Boolean(document.querySelector(${selectorLiteral("composer-chrome")})),
-      main: Boolean(document.querySelector(${selectorLiteral("home-route")})),
-      generic: genericCodexSurface(),
-    };
-    const settings = Boolean(document.querySelector(${selectorLiteral("settings-panel")})) ||
-      Boolean(document.querySelector(${selectorLiteral("appearance-radio")})) ||
-      Boolean(document.querySelector(${stableTestidLiteral("theme-preview")}));
-    return {
-      markers,
-      excludedPetSurface,
-      codex: !excludedPetSurface && location.protocol === 'app:' &&
-        ((markers.shell && markers.sidebar) || settings || markers.main || markers.generic),
-    };
-  })()`);
-}
-
-async function waitForCodexProbe(session, timeoutMs = 1800) {
-  const deadline = Date.now() + timeoutMs;
-  let probe = null;
-  while (Date.now() < deadline) {
-    probe = await probeSession(session);
-    if (probe?.codex) return probe;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  return probe;
-}
-
-async function connectTarget(target, port) {
-  return new CdpSession(target, port).open();
-}
+const { listAppTargets, connectTarget } = createCdpTransport({
+  onListenerError: (error) => console.error('[dream-skin] CDP listener failed: ' + error.message),
+});
+const {
+  probeSession, waitForCodexProbe, earlyPayloadFor: sharedEarlyPayloadFor,
+} = createInjectionEngine({ selectorLiteral, stableTestidLiteral });
 
 async function connectCodexTargets(port, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
-  let lastError;
-  while (Date.now() < deadline) {
-    try {
-      const targets = await listAppTargets(port);
-      const connected = [];
-      for (const target of targets) {
-        let session;
-        try {
-          session = await connectTarget(target, port);
-          const probe = await probeSession(session);
-          if (probe?.codex) connected.push({ target, session, probe });
-          else {
-            if (probe?.excludedPetSurface && !await cleanupExcludedSurface(session)) {
-              throw new Error("Excluded Pet surface cleanup did not verify");
-            }
-            session.close();
-          }
-        } catch (error) {
-          session?.close();
-          lastError = error;
-        }
-      }
-      if (connected.length) return connected;
-      lastError = new Error("No page matched the expected ChatGPT shell markers");
-    } catch (error) {
-      lastError = error;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 350));
-  }
-  throw new Error(`No verified ChatGPT renderer on 127.0.0.1:${port}: ${lastError?.message ?? "timed out"}`);
-}
-
-function assertContainedPath(rootPath, candidatePath, label) {
-  const relative = path.relative(rootPath, candidatePath);
-  if (
-    relative === ""
-    || (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`))
-  ) return;
-  throw new Error(`${label} must stay inside its theme directory`);
-}
-
-function sameFileStat(left, right) {
-  return left.isFile() && right.isFile()
-    && left.dev === right.dev
-    && left.ino === right.ino
-    && left.size === right.size
-    && left.mtimeMs === right.mtimeMs
-    && left.ctimeMs === right.ctimeMs;
-}
-
-async function verifyMediaSnapshot(snapshotPath, expectedBytes) {
-  let handle;
-  try {
-    handle = await fs.open(snapshotPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
-    const before = await handle.stat();
-    if (!before.isFile() || before.size !== expectedBytes.length) {
-      throw new Error("Validated media snapshot has an unexpected file type or size");
-    }
-    const actualBytes = await handle.readFile();
-    const after = await handle.stat();
-    if (!sameFileStat(before, after) || !actualBytes.equals(expectedBytes)) {
-      throw new Error("Validated media snapshot content does not match the checked media");
-    }
-  } finally {
-    await handle?.close();
-  }
-}
-
-async function removeCachedMediaFile(filePath) {
-  try {
-    await fs.chmod(filePath, 0o600);
-    await fs.unlink(filePath);
-  } catch (error) {
-    if (!["ENOENT", "EBUSY", "EPERM"].includes(error?.code)) throw error;
-  }
-}
-
-function processIsRunning(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code !== "ESRCH";
-  }
-}
-
-async function cleanStaleMediaCacheInstances() {
-  const entries = await fs.readdir(MEDIA_CACHE_PARENT, { withFileTypes: true });
-  const staleBefore = Date.now() - MEDIA_CACHE_STALE_MS;
-  for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name === MEDIA_CACHE_INSTANCE) continue;
-    const match = /^(\d+)\.([0-9a-f-]{36})$/.exec(entry.name);
-    if (!match) continue;
-    const instancePath = path.join(MEDIA_CACHE_PARENT, entry.name);
-    let activityStat;
-    try {
-      activityStat = await fs.stat(path.join(instancePath, ".lease"));
-    } catch (error) {
-      if (error?.code !== "ENOENT") continue;
-      try {
-        activityStat = await fs.stat(instancePath);
-      } catch {
-        continue;
-      }
-    }
-    if (activityStat.mtimeMs >= staleBefore || processIsRunning(Number(match[1]))) continue;
-    await fs.rm(instancePath, {
-      recursive: true, force: true, maxRetries: 2, retryDelay: 50,
-    }).catch(() => {});
-  }
-}
-
-async function ensureMediaCacheRoot(mediaCacheRoot) {
-  await fs.mkdir(mediaCacheRoot, { recursive: true, mode: 0o700 });
-  await fs.chmod(mediaCacheRoot, 0o700);
-  if (mediaCacheRoot !== MEDIA_CACHE_ROOT) return;
-  const leasePath = path.join(MEDIA_CACHE_ROOT, ".lease");
-  await fs.writeFile(leasePath, `${process.pid}\n`, { mode: 0o600 });
-  if (!mediaCacheHeartbeat) {
-    mediaCacheHeartbeat = setInterval(() => {
-      const now = new Date();
-      fs.utimes(leasePath, now, now).catch(() => {});
-    }, MEDIA_CACHE_HEARTBEAT_MS);
-    mediaCacheHeartbeat.unref?.();
-  }
-  await cleanStaleMediaCacheInstances();
-}
-
-async function pruneMediaCache(mediaCacheRoot, retainedPath) {
-  const entries = await fs.readdir(mediaCacheRoot, { withFileTypes: true });
-  const snapshots = [];
-  const staleBefore = Date.now() - STALE_MEDIA_TEMP_MS;
-  for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    const entryPath = path.join(mediaCacheRoot, entry.name);
-    if (/^[a-f0-9]{64}\.(?:mp4|png|apng|jpg|jpeg|webp|gif)$/.test(entry.name)) {
-      const stat = await fs.lstat(entryPath);
-      if (stat.isFile()) snapshots.push({ path: entryPath, size: stat.size, mtimeMs: stat.mtimeMs });
-      continue;
-    }
-    if (/^\.[a-f0-9]{64}\.\d+\.[0-9a-f-]{36}\.tmp$/.test(entry.name)) {
-      const stat = await fs.lstat(entryPath);
-      if (stat.isFile() && stat.mtimeMs < staleBefore) await removeCachedMediaFile(entryPath);
-    }
-  }
-  snapshots.sort((left, right) => {
-    if (left.path === retainedPath) return -1;
-    if (right.path === retainedPath) return 1;
-    return right.mtimeMs - left.mtimeMs;
+  return discoverCodexTargets({
+    port, timeoutMs, listTargets: () => listAppTargets(port),
+    connectTarget, probeSession, cleanupExcludedSurface, productName: "ChatGPT",
   });
-  let retainedBytes = 0;
-  let retainedFiles = 0;
-  for (const snapshot of snapshots) {
-    const keep = snapshot.path === retainedPath || (
-      retainedFiles < MAX_MEDIA_CACHE_FILES &&
-      retainedBytes + snapshot.size <= MAX_MEDIA_CACHE_BYTES
-    );
-    if (keep) {
-      retainedFiles += 1;
-      retainedBytes += snapshot.size;
-    } else {
-      await removeCachedMediaFile(snapshot.path);
-    }
-  }
 }
-
-export async function materializeMediaSnapshot(mediaBytes, mediaCacheRoot = MEDIA_CACHE_ROOT, extension = ".mp4") {
-  if (![".mp4", ".png", ".apng", ".jpg", ".jpeg", ".webp", ".gif"].includes(extension)) {
-    throw new Error("Unsupported media snapshot extension");
-  }
-  const digest = createHash("sha256").update(mediaBytes).digest("hex");
-  await ensureMediaCacheRoot(mediaCacheRoot);
-  const snapshotPath = path.join(mediaCacheRoot, `${digest}${extension}`);
-  try {
-    await verifyMediaSnapshot(snapshotPath, mediaBytes);
-    await fs.chmod(snapshotPath, 0o400);
-    const realSnapshotPath = await fs.realpath(snapshotPath);
-    await pruneMediaCache(mediaCacheRoot, realSnapshotPath);
-    return realSnapshotPath;
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-  }
-
-  const temporaryPath = path.join(
-    mediaCacheRoot, `.${digest}.${process.pid}.${randomUUID()}.tmp`,
-  );
-  try {
-    await fs.writeFile(temporaryPath, mediaBytes, { flag: "wx", mode: 0o600 });
-    await fs.chmod(temporaryPath, 0o400);
-    try {
-      await fs.rename(temporaryPath, snapshotPath);
-    } catch (error) {
-      if (error?.code !== "EEXIST" && error?.code !== "EPERM") throw error;
-      await verifyMediaSnapshot(snapshotPath, mediaBytes);
-    }
-  } finally {
-    await fs.unlink(temporaryPath).catch((error) => {
-      if (error?.code !== "ENOENT") throw error;
-    });
-  }
-  await fs.chmod(snapshotPath, 0o400);
-  await verifyMediaSnapshot(snapshotPath, mediaBytes);
-  const realSnapshotPath = await fs.realpath(snapshotPath);
-  await pruneMediaCache(mediaCacheRoot, realSnapshotPath);
-  return realSnapshotPath;
-}
-
-async function loadSafeCss(assetsRoot) {
-  const cssPath = path.join(assetsRoot, "theme.css");
-  let handle;
-  try {
-    handle = await fs.open(cssPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
-  } catch (error) {
-    if (error.code === "ENOENT") return null;
-    if (error.code === "ELOOP") throw new Error("Theme Safe CSS must not be a symbolic link");
-    throw error;
-  }
-  try {
-    const before = await handle.stat();
-    if (!before.isFile() || before.size < 1 || before.size > MAX_SAFE_CSS_BYTES) {
-      throw new Error(`Theme Safe CSS must be a non-empty file no larger than ${MAX_SAFE_CSS_BYTES} bytes`);
-    }
-    const bytes = await handle.readFile();
-    const after = await handle.stat();
-    if (!sameFileStat(before, after) || bytes.length !== after.size) {
-      throw new Error("Theme Safe CSS changed while being loaded");
-    }
-    const { source, runtimeSource, validation } = decodeAndValidateSafeCss(bytes);
-    return { path: cssPath, runtimeSource, source, stat: after, validation };
-  } finally {
-    await handle.close();
-  }
-}
-
-export async function loadTheme(themeDir) {
-  const requestedRoot = themeDir ?? path.join(root, "assets");
-  const configPath = path.join(requestedRoot, "theme.json");
-  let assetsRoot;
-  let canonicalConfigPath;
-  try {
-    [assetsRoot, canonicalConfigPath] = await Promise.all([
-      fs.realpath(requestedRoot),
-      fs.realpath(configPath),
-    ]);
-  } catch (error) {
-    if (themeDir && error.code === "ENOENT") {
-      throw new Error(`Explicit theme directory is missing theme.json: ${configPath}`);
-    }
-    throw error;
-  }
-  assertContainedPath(assetsRoot, canonicalConfigPath, "Theme config");
-  let config;
-  try {
-    config = await fs.readFile(canonicalConfigPath, "utf8");
-  } catch (error) {
-    if (themeDir && error.code === "ENOENT") {
-      throw new Error(`Explicit theme directory is missing theme.json: ${configPath}`);
-    }
-    throw error;
-  }
-  const raw = JSON.parse(config);
-  if (raw.schemaVersion !== 1 || typeof raw.image !== "string" || !raw.image) {
-    throw new Error(`${configPath} has an unsupported schema or image field`);
-  }
-  if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(raw.image)) {
-    throw new Error(`${configPath} has an invalid image field`);
-  }
-  if (path.basename(raw.image) !== raw.image) throw new Error("Theme image must stay inside its theme directory");
-  const choice = (value, name, choices) => {
-    if (value === undefined) return undefined;
-    if (typeof value !== "string" || !choices.includes(value)) {
-      throw new Error(`${configPath} has an invalid ${name} field`);
-    }
-    return value;
-  };
-  const unit = (value, name) => {
-    if (value === undefined) return undefined;
-    if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
-      throw new Error(`${configPath} has an invalid ${name} field`);
-    }
-    return value;
-  };
-  const range = (value, name, min, max, fallback) => {
-    if (value === undefined) return fallback;
-    if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
-      throw new Error(`${configPath} has an invalid ${name} field`);
-    }
-    return value;
-  };
-  const rawColors = raw.colors && typeof raw.colors === "object" && !Array.isArray(raw.colors)
-    ? raw.colors : null;
-  const colorKeys = [
-    "background", "panel", "panelAlt", "accent", "accentAlt", "secondary",
-    "highlight", "text", "muted", "line",
-  ];
-  const appearance = choice(raw.appearance, "appearance", ["auto", "light", "dark"]);
-  if (raw.art !== undefined && (!raw.art || typeof raw.art !== "object" || Array.isArray(raw.art))) {
-    throw new Error(`${configPath} has an invalid art field`);
-  }
-  const rawArt = raw.art || {};
-  const framingKeys = ["positionX", "positionY", "zoom", "positionMode"];
-  const hasFramingValues = framingKeys.some((key) => Object.hasOwn(rawArt, key));
-  if (Object.hasOwn(rawArt, "framingEnabled") && typeof rawArt.framingEnabled !== "boolean") {
-    throw new Error(`${configPath} has an invalid art.framingEnabled field`);
-  }
-  const framingEnabled = rawArt.framingEnabled === true || hasFramingValues;
-  const art = {
-    focusX: unit(rawArt.focusX, "art.focusX"),
-    focusY: unit(rawArt.focusY, "art.focusY"),
-    bubbleOpacity: range(rawArt.bubbleOpacity, "art.bubbleOpacity", 0, 1, 0),
-    surfaceOpacity: range(rawArt.surfaceOpacity, "art.surfaceOpacity", 0, 1, 0.8),
-    safeArea: choice(rawArt.safeArea, "art.safeArea", ["auto", "left", "right", "center", "none"]),
-    taskMode: choice(rawArt.taskMode, "art.taskMode", ["auto", "ambient", "banner", "full", "off"]),
-    ...(framingEnabled ? {
-      positionX: range(rawArt.positionX, "art.positionX", -1, 1, 0),
-      positionY: range(rawArt.positionY, "art.positionY", -1, 1, 0),
-      zoom: range(rawArt.zoom, "art.zoom", 1, 2, 1),
-      positionMode: choice(rawArt.positionMode ?? "locked", "art.positionMode", ["locked", "free"]),
-      framingEnabled: true,
-    } : {}),
-  };
-  const theme = {
-    schemaVersion: 1,
-    id: normalizeThemeText(raw.id, "custom", 80, "id", configPath),
-    name: normalizeThemeText(raw.name, "Codex Dream Skin", 80, "name", configPath),
-    brandSubtitle: normalizeThemeText(raw.brandSubtitle, "CODEX DREAM SKIN", 120, "brandSubtitle", configPath),
-    tagline: normalizeThemeText(raw.tagline, "Make something wonderful.", 120, "tagline", configPath),
-    projectPrefix: normalizeThemeText(raw.projectPrefix, "选择项目 · ", 120, "projectPrefix", configPath),
-    projectLabel: normalizeThemeText(raw.projectLabel, "◉  选择项目", 120, "projectLabel", configPath),
-    statusText: normalizeThemeText(raw.statusText, "DREAM SKIN ONLINE", 120, "statusText", configPath),
-    quote: normalizeThemeText(raw.quote, "MAKE SOMETHING WONDERFUL", 120, "quote", configPath),
-    image: raw.image,
-    colorMode: rawColors ? "explicit" : "auto",
-    explicitColorKeys: rawColors ? colorKeys.filter((key) => Object.hasOwn(rawColors, key)) : [],
-    colors: {
-      background: normalizeThemeColor(rawColors?.background, "#071116"),
-      panel: normalizeThemeColor(rawColors?.panel, "#0b1a20"),
-      panelAlt: normalizeThemeColor(rawColors?.panelAlt, "#10272c"),
-      accent: normalizeThemeColor(rawColors?.accent, "#7cff46"),
-      accentAlt: normalizeThemeColor(rawColors?.accentAlt, "#b8ff3d"),
-      secondary: normalizeThemeColor(rawColors?.secondary, "#36d7e8"),
-      highlight: normalizeThemeColor(rawColors?.highlight, "#642a8c"),
-      text: normalizeThemeColor(rawColors?.text, "#e9fff1"),
-      muted: normalizeThemeColor(rawColors?.muted, "#9ebdb3"),
-      line: normalizeThemeColor(rawColors?.line, "rgba(124, 255, 70, .28)"),
-    },
-  };
-  if (appearance !== undefined) theme.appearance = appearance;
-  if (Object.values(art).some((value) => value !== undefined)) {
-    theme.art = Object.fromEntries(Object.entries(art).filter(([, value]) => value !== undefined));
-  }
-  const requestedImagePath = path.join(assetsRoot, theme.image);
-  let imagePath;
-  try {
-    imagePath = await fs.realpath(requestedImagePath);
-  } catch (error) {
-    if (error.code === "ENOENT") throw new Error(`Theme image is missing: ${requestedImagePath}`);
-    throw error;
-  }
-  assertContainedPath(assetsRoot, imagePath, "Theme image");
-  const imageStat = await fs.stat(imagePath);
-  const extension = path.extname(theme.image).toLowerCase();
-  if (![".png", ".apng", ".jpg", ".jpeg", ".webp", ".gif", ".mp4"].includes(extension)) {
-    throw new Error(`Unsupported theme image format: ${extension || "missing"}`);
-  }
-  const maxArtBytes = extension === ".mp4" ? MAX_VIDEO_BYTES : MAX_ART_BYTES;
-  let imageHandle;
-  try {
-    imageHandle = await fs.open(imagePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
-  } catch (error) {
-    if (error.code === "ELOOP") throw new Error("Theme image changed into a symbolic link while loading");
-    throw error;
-  }
-  try {
-    const openedStat = await imageHandle.stat();
-    if (
-      !imageStat.isFile()
-      || !openedStat.isFile()
-      || imageStat.dev !== openedStat.dev
-      || imageStat.ino !== openedStat.ino
-      || openedStat.size < 1
-      || openedStat.size > maxArtBytes
-    ) {
-      throw new Error(`Theme media must be a stable non-empty file no larger than ${maxArtBytes / 1024 / 1024} MiB`);
-    }
-    const art = await imageHandle.readFile();
-    if (art.length < 1 || art.length > maxArtBytes) {
-      throw new Error(`Theme media must be a non-empty file no larger than ${maxArtBytes / 1024 / 1024} MiB`);
-    }
-    const safeCss = await loadSafeCss(assetsRoot);
-    return {
-      art,
-      assetsRoot,
-      extension,
-      imagePath,
-      safeCss: safeCss?.source ?? "",
-      safeCssRuntime: safeCss?.runtimeSource ?? "",
-      safeCssPath: safeCss?.path ?? null,
-      safeCssStatus: safeCss ? "validated" : "none",
-      theme,
-    };
-  } finally {
-    await imageHandle.close();
-  }
-}
-
-async function loadStaticPayloadAssets() {
-  const cacheHit = Boolean(staticPayloadAssets);
-  if (!staticPayloadAssets) {
-    staticPayloadAssets = Promise.all([
-      fs.readFile(path.join(root, "assets", "dream-skin.css"), "utf8"),
-      fs.readFile(path.join(root, "assets", "renderer-inject.js"), "utf8"),
-    ]).catch((error) => {
-      staticPayloadAssets = null;
-      throw error;
-    });
-  }
-  const [css, template] = await staticPayloadAssets;
-  return { css, template, cacheHit };
-}
-
-function invalidateStaticPayloadAssets() {
-  staticPayloadAssets = null;
-}
-
-export async function loadPayload(themeDir, mediaCacheRoot = MEDIA_CACHE_ROOT) {
-  const startedAt = performance.now();
-  const [staticAssets, loaded] = await Promise.all([
-    loadStaticPayloadAssets(),
-    loadTheme(themeDir),
-  ]);
-  const { css, template } = staticAssets;
-  const { art, extension, safeCssRuntime, safeCssStatus, theme } = loaded;
-  const combinedCss = safeCssRuntime ? `${css}\n${safeCssRuntime}\n` : css;
-  const styleRevision = createHash("sha256").update(combinedCss).digest("hex").slice(0, 20);
-  const artMetadata = readImageMetadata(art, extension);
-  if (!artMetadata) {
-    throw new Error("Theme media metadata is invalid or exceeds the 16384px / 50MP safety limit");
-  }
-  const animation = readImageAnimation(art, extension);
-  if (!animation || animation.frameCount > MAX_IMAGE_FRAMES) {
-    throw new Error(`Theme image has too many animation frames (maximum ${MAX_IMAGE_FRAMES})`);
-  }
-  const artKey = createHash("sha256").update(art).digest("hex").slice(0, 20);
-  theme.artMetadata = { ...artMetadata, ...animation };
-  theme.artKey = artKey;
-  const mime = extension === ".jpg" || extension === ".jpeg" ? "image/jpeg"
-    : extension === ".webp" ? "image/webp"
-      : extension === ".gif" ? "image/gif"
-        : extension === ".mp4" ? "video/mp4" : "image/png";
-  const artDataUrl = `dreamskin-file:${mime}`;
-  const revision = createHash("sha256")
-    .update(SKIN_VERSION)
-    .update(combinedCss)
-    .update(template)
-    .update(JSON.stringify(theme))
-    .digest("hex")
-    .slice(0, 20);
-  // Every replacement value must be supplied as a function. A plain string
-  // replacement would still interpret `$$`, `$&`, `` $` `` and `$'` inside the
-  // JSON, so a theme name that legitimately contains `$` could silently corrupt
-  // or truncate the payload. Function replacements are inserted verbatim.
-  const payload = template
-    .replace("__DREAM_SKIN_CSS_JSON__", () => JSON.stringify(combinedCss))
-    .replace("__DREAM_SKIN_ART_JSON__", () => JSON.stringify(artDataUrl))
-    .replace("__DREAM_SKIN_THEME_JSON__", () => JSON.stringify(theme))
-    .replace("__DREAM_SKIN_VERSION_JSON__", () => JSON.stringify(SKIN_VERSION))
-    .replace("__DREAM_SKIN_STYLE_REVISION_JSON__", () => JSON.stringify(styleRevision))
-    .replace("__DREAM_SKIN_PAYLOAD_REVISION_JSON__", () => JSON.stringify(revision));
-  assertPayloadIntegrity(payload);
-  const mediaFilePath = await materializeMediaSnapshot(art, mediaCacheRoot, extension);
-  return {
-    imageBytes: art.length,
-    mediaFilePath,
-    payload,
-    revision,
-    safeCssStatus,
-    theme,
-    timings: {
-      buildMs: Number((performance.now() - startedAt).toFixed(3)),
-      staticCacheHit: staticAssets.cacheHit,
-    },
-  };
-}
-
-// Fail closed before a payload can reach the renderer. Theme display fields are
-// attacker-influenced text, so template substitution is verified structurally
-// instead of trusting any single sanitiser:
-//   1. no placeholder token may survive substitution;
-//   2. the payload must still parse as the standalone expression that
-//      Runtime.evaluate would receive.
-// The second assertion is deliberately generic: it catches any corruption of
-// the template, not only the `$` replacement patterns that motivated it.
-// `new Script` compiles without running the payload, so nothing executes here.
-export function assertPayloadIntegrity(payload) {
-  if (/__DREAM_SKIN_[A-Z0-9_]+_JSON__/.test(payload)) {
-    throw new Error("Payload placeholders were not fully replaced");
-  }
-  try {
-    new Script(payload, { filename: "dream-skin-payload.js" });
-  } catch (error) {
-    throw new Error(`Payload is not a parsable renderer script: ${error.message}`);
-  }
-  return true;
-}
-
-async function applyToSession(session, payload) {
-  return session.evaluate(payload);
-}
+const sharedPayload = createThemePayload(root, SKIN_VERSION);
+export const loadTheme = sharedPayload.loadTheme;
+export const assertPayloadIntegrity = sharedPayload.assertPayloadIntegrity;
+const invalidateStaticPayloadAssets = sharedPayload.invalidateStaticPayloadAssets;
+export const loadPayload = (themeDir, mediaCacheRoot = MEDIA_CACHE_ROOT) => sharedPayload.loadPayload(themeDir, null, mediaCacheRoot);
 
 export async function probeVideoInCodex(snapshotPath, state) {
   let targets;
@@ -1124,203 +241,12 @@ export async function probeVideoInCodex(snapshotPath, state) {
   } finally { anchor?.close(); }
 }
 
-export async function bindMediaFileToSession(session, loadedPayload, timeoutMs = 10000) {
-  if (!loadedPayload?.mediaFilePath) return true;
-  const deadline = Date.now() + timeoutMs;
-  const revision = JSON.stringify(loadedPayload.revision);
-  while (Date.now() < deadline) {
-    const result = await session.send("Runtime.evaluate", {
-      expression: `(() => {
-        const state = window.__CODEX_DREAM_SKIN_STATE__;
-        if (state?.revision !== ${revision}) return null;
-        return document.getElementById("codex-dream-skin-media-file");
-      })()`,
-      returnByValue: false,
-    });
-    if (result.exceptionDetails) {
-      const detail = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text;
-      throw new Error(`Media file bridge lookup failed: ${detail}`);
-    }
-    const objectId = result.result?.objectId;
-    if (!objectId) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      continue;
-    }
-    try {
-      await session.send("DOM.setFileInputFiles", {
-        files: [loadedPayload.mediaFilePath],
-        objectId,
-      });
-    } finally {
-      await session.send("Runtime.releaseObject", { objectId }).catch(() => {});
-    }
-    const bound = await session.evaluate(`(() => {
-      const state = window.__CODEX_DREAM_SKIN_STATE__;
-      return state?.revision === ${revision} && Boolean(state.bindMediaFile?.());
-    })()`);
-    if (!bound) throw new Error("Renderer rejected the validated media file bridge");
-    while (Date.now() < deadline) {
-      const status = await session.evaluate(`(() => {
-        const state = window.__CODEX_DREAM_SKIN_STATE__;
-        if (state?.revision !== ${revision}) return { stale: true };
-        if (state.mediaType === "image") return { error: state.imageError, ready: state.imageReady };
-        const video = state.videoLayer;
-        return {
-          error: state.videoError || null,
-          ready: Boolean(video && video.readyState >= 1 && video.videoWidth > 0 && video.videoHeight > 0),
-        };
-      })()`);
-      if (status?.stale) throw new Error("Renderer changed while binding the media file bridge");
-      if (status?.error) throw new Error(`Media loading failed: ${status.error}`);
-      if (status?.ready) return true;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    break;
-  }
-  throw new Error("Timed out waiting for the renderer media file bridge to load");
-}
-
-export async function applyLoadedToSession(session, loadedPayload) {
-  if (loadedPayload.theme?.artMetadata?.video) await probeVideoDecode(session, loadedPayload.mediaFilePath);
-  await applyToSession(session, loadedPayload.payload);
-  await bindMediaFileToSession(session, loadedPayload);
-}
 
 function nextOperationToken() {
   operationSequence += 1;
   return `${process.pid}:${Date.now()}:${operationSequence}`;
 }
 
-function operationUiExpression(action, token, state = "loading", message = "") {
-  const config = { action, token, state, message };
-  return `(() => {
-    const config = ${JSON.stringify(config)};
-    const hostId = ${JSON.stringify(OPERATION_UI_HOST_ID)};
-    const registryKey = ${JSON.stringify(OPERATION_UI_REGISTRY_KEY)};
-    const css = ${JSON.stringify(OPERATION_UI_CSS)};
-    const revealDelayMs = 16;
-    const minimumLoadingMs = 700;
-    const stateTtl = (value) => value === "loading" ? 180000
-      : value === "success" ? 1800 : value === "cancelled" ? 2400 : 6000;
-    const issuedAt = (value) => Number(String(value).split(":")[1]) || 0;
-    const positionInMainArea = (host) => {
-      const main = document.querySelector(${selectorLiteral("shell-main")}) ||
-        document.querySelector('[role="main"]') || document.documentElement;
-      const rect = main.getBoundingClientRect();
-      const top = Math.max(0, rect.top);
-      const left = Math.max(0, rect.left);
-      const width = Math.max(1, Math.min(innerWidth - left, rect.width || innerWidth));
-      const height = Math.max(1, Math.min(innerHeight - top, rect.height || innerHeight));
-      host.style.setProperty("--dream-skin-operation-top", String(top) + "px");
-      host.style.setProperty("--dream-skin-operation-left", String(left) + "px");
-      host.style.setProperty("--dream-skin-operation-width", String(width) + "px");
-      host.style.setProperty("--dream-skin-operation-height", String(height) + "px");
-    };
-    const clearTimer = (timer) => { if (timer) clearTimeout(timer); };
-    const removeHost = (expectedToken, force = false) => {
-      const host = document.getElementById(hostId);
-      const registry = window[registryKey];
-      if (!force && host?.dataset.operationToken !== expectedToken) return false;
-      if (!force && registry?.token && registry.token !== expectedToken) return false;
-      clearTimer(registry?.showTimer);
-      clearTimer(registry?.expiryTimer);
-      clearTimer(registry?.terminalTimer);
-      host?.remove();
-      if (force || registry?.token === expectedToken) delete window[registryKey];
-      return true;
-    };
-    if (config.action === "clear") {
-      removeHost("", true);
-      return { visible: false, cleared: true };
-    }
-    if (config.action === "hide") {
-      return { visible: false, removed: removeHost(config.token) };
-    }
-    let host = document.getElementById(hostId);
-    if (config.action === "show") {
-      const currentIssuedAt = Number(host?.dataset.operationIssuedAt || 0);
-      if (host?.dataset.operationToken !== config.token && currentIssuedAt > issuedAt(config.token)) {
-        return { visible: false, stale: true };
-      }
-      removeHost("", true);
-      host = document.createElement("div");
-      host.id = hostId;
-      host.dataset.operationToken = config.token;
-      host.dataset.operationIssuedAt = String(issuedAt(config.token));
-      host.dataset.state = config.state;
-      host.setAttribute("role", "status");
-      host.setAttribute("aria-live", "polite");
-      host.setAttribute("aria-atomic", "true");
-      const rgb = getComputedStyle(document.body || document.documentElement).backgroundColor.match(/\\d+(?:\\.\\d+)?/g)?.map(Number);
-      const light = rgb?.length >= 3
-        ? (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) > 150
-        : matchMedia("(prefers-color-scheme: light)").matches;
-      host.dataset.tone = light ? "light" : "dark";
-      positionInMainArea(host);
-      const shadow = host.attachShadow({ mode: "open" });
-      const styleNode = document.createElement("style");
-      styleNode.textContent = css;
-      const statusNode = document.createElement("div");
-      statusNode.className = "status";
-      const indicator = document.createElement("span");
-      indicator.className = "indicator";
-      indicator.setAttribute("aria-hidden", "true");
-      const messageNode = document.createElement("span");
-      messageNode.className = "message";
-      messageNode.textContent = config.message;
-      statusNode.append(indicator, messageNode);
-      shadow.append(styleNode, statusNode);
-      document.documentElement.append(host);
-      const registry = {
-        token: config.token,
-        startedAt: Date.now(),
-        showTimer: null,
-        expiryTimer: null,
-        terminalTimer: null,
-      };
-      registry.showTimer = setTimeout(() => {
-        const current = document.getElementById(hostId);
-        if (current?.dataset.operationToken === config.token) current.dataset.visible = "true";
-      }, revealDelayMs);
-      registry.expiryTimer = setTimeout(() => removeHost(config.token), stateTtl(config.state));
-      window[registryKey] = registry;
-      return { visible: true, state: config.state };
-    }
-    if (!host || host.dataset.operationToken !== config.token) {
-      return { visible: false, stale: true };
-    }
-    const registry = window[registryKey];
-    clearTimer(registry?.terminalTimer);
-    clearTimer(registry?.expiryTimer);
-    positionInMainArea(host);
-    const terminal = config.state === "success" || config.state === "error" || config.state === "cancelled";
-    const remainingLoadingMs = terminal && host.dataset.state === "loading" && registry?.startedAt
-      ? Math.max(0, registry.startedAt + minimumLoadingMs - Date.now())
-      : 0;
-    if (remainingLoadingMs > 0 && registry?.token === config.token) {
-      registry.terminalTimer = setTimeout(() => {
-        const current = document.getElementById(hostId);
-        const currentRegistry = window[registryKey];
-        if (current?.dataset.operationToken !== config.token || currentRegistry?.token !== config.token) return;
-        current.dataset.state = config.state;
-        current.dataset.visible = "true";
-        const currentMessage = current.shadowRoot?.querySelector(".message");
-        if (currentMessage) currentMessage.textContent = config.message;
-        clearTimer(currentRegistry.expiryTimer);
-        currentRegistry.expiryTimer = setTimeout(() => removeHost(config.token), stateTtl(config.state));
-      }, remainingLoadingMs);
-      return { visible: true, state: "loading", deferred: true };
-    }
-    host.dataset.state = config.state;
-    host.dataset.visible = "true";
-    const messageNode = host.shadowRoot?.querySelector(".message");
-    if (messageNode) messageNode.textContent = config.message;
-    if (registry?.token === config.token) {
-      registry.expiryTimer = setTimeout(() => removeHost(config.token), stateTtl(config.state));
-    }
-    return { visible: true, state: config.state };
-  })()`;
-}
 
 async function updateOperationUi(session, action, token, state, message, timeoutMs = 10000) {
   if (session.closed) return false;
@@ -1348,59 +274,6 @@ async function presentOperationUi(session, token, state, message, timeoutMs = 10
   return bestEffortOperationUi(session, "show", token, state, message, timeoutMs);
 }
 
-async function removeFromSession(session) {
-  return session.evaluate(`(() => {
-    window.__CODEX_DREAM_SKIN_DISABLED__ = true;
-    const state = window.__CODEX_DREAM_SKIN_STATE__;
-    let cleaned = false;
-    try { cleaned = Boolean(state?.cleanup && state.cleanup()); } catch {}
-    if (cleaned) return true;
-    const root = document.documentElement;
-    for (const attribute of [...(root?.attributes || [])]) {
-      if (attribute.name.startsWith('data-dream-')) root.removeAttribute(attribute.name);
-    }
-    for (const property of [...(root?.style || [])]) {
-      if (property.startsWith('--dream-') || property.startsWith('--ds-')) {
-        root.style.removeProperty(property);
-      }
-    }
-    for (const node of document.querySelectorAll('[data-ds-part]')) {
-      node.removeAttribute('data-ds-part');
-    }
-    const sheets = window.__CODEX_DREAM_SKIN_STYLE_SHEETS__;
-    if (sheets && 'adoptedStyleSheets' in document) {
-      document.adoptedStyleSheets = [...document.adoptedStyleSheets]
-        .filter((sheet) => !sheets.has(sheet));
-    }
-    delete window.__CODEX_DREAM_SKIN_STYLE_SHEETS__;
-    try { if (state?.artUrl) URL.revokeObjectURL(state.artUrl); } catch {}
-    document.getElementById('codex-dream-skin-style')?.remove();
-    delete window.__CODEX_DREAM_SKIN_STATE__;
-    return true;
-  })()`);
-}
-
-async function verifyRemovedSession(session) {
-  return session.evaluate(`(() => {
-    const root = document.documentElement;
-    const hasAttributes = [...root.attributes].some((attribute) =>
-      attribute.name.startsWith('data-dream-'));
-    const hasVariables = [...root.style].some((property) =>
-      property.startsWith('--dream-') || property.startsWith('--ds-'));
-    const hasParts = Boolean(document.querySelector('[data-ds-part]'));
-    const sheets = window.__CODEX_DREAM_SKIN_STYLE_SHEETS__;
-    const hasSheets = Boolean(sheets?.size && 'adoptedStyleSheets' in document &&
-      [...document.adoptedStyleSheets].some((sheet) => sheets.has(sheet)));
-    return !hasAttributes && !hasVariables && !hasParts && !hasSheets &&
-      !document.getElementById('codex-dream-skin-style') &&
-      !window.__CODEX_DREAM_SKIN_STATE__;
-  })()`);
-}
-
-export async function cleanupExcludedSurface(session) {
-  if (!await removeFromSession(session)) return false;
-  return verifyRemovedSession(session);
-}
 
 export async function inspectNativeWindow(session) {
   try {
@@ -1415,136 +288,9 @@ export async function inspectNativeWindow(session) {
   }
 }
 
+const verifyRenderer = createRendererVerifier(selectorLiteral, stableTestidLiteral, SKIN_VERSION);
 export async function verifySession(session, expectedThemeId = null, expectedRevision = null) {
-  const renderer = await session.evaluate(`(() => {
-    const box = (node) => {
-      if (!node) return null;
-      const r = node.getBoundingClientRect();
-      const style = getComputedStyle(node);
-      const opacity = Number.parseFloat(style.opacity);
-      const right = Number.isFinite(r.right) ? r.right : r.x + r.width;
-      const bottom = Number.isFinite(r.bottom) ? r.bottom : r.y + r.height;
-      let cssVisible = r.width > 0 && r.height > 0 && style.display !== 'none' &&
-        style.visibility !== 'hidden' && style.visibility !== 'collapse' &&
-        style.contentVisibility !== 'hidden' && (!Number.isFinite(opacity) || opacity > 0);
-      try {
-        if (typeof node.checkVisibility === 'function') {
-          cssVisible = cssVisible && node.checkVisibility({
-            checkOpacity: true,
-            checkVisibilityCSS: true,
-          });
-        }
-      } catch {}
-      const intersectsViewport = right > 0 && bottom > 0 && r.x < innerWidth && r.y < innerHeight;
-      return {
-        x: Math.round(r.x), y: Math.round(r.y),
-        width: Math.round(r.width), height: Math.round(r.height),
-        visible: Boolean(node.isConnected !== false && cssVisible && intersectsViewport),
-      };
-    };
-    const homeIndicator = document.querySelector(${selectorLiteral("home-icon")});
-    const homeSignal = homeIndicator ?? document.querySelector(${selectorLiteral("game-source")}) ??
-      document.querySelector(${selectorLiteral("home-suggestions")});
-    const homeRoute = homeSignal?.closest('[role="main"]') ?? null;
-    // Codex 26.721.x can render the home content before home-icon. Reuse the
-    // already-resolved semantic home container so a healthy home session is
-    // not rejected solely because the stricter home-icon selector is late.
-    const home = document.querySelector(${selectorLiteral("home-route")}) ?? homeRoute;
-    const suggestions = home?.querySelector(${selectorLiteral("home-suggestions")}) ?? null;
-    const cardButtons = suggestions ? [...suggestions.querySelectorAll('button')] : [];
-    const cardBoxes = cardButtons.map(box);
-    const visibleCards = cardBoxes.filter((item) => item?.visible);
-    const suggestionLabels = cardButtons.flatMap((button) => {
-      const expectedColor = getComputedStyle(button).color;
-      return [...button.querySelectorAll('*')]
-        .filter((node) => [...node.childNodes].some((child) =>
-          child.nodeType === 3 && child.textContent.trim()))
-        .map((node) => ({
-          ...box(node),
-          text: node.textContent.trim().slice(0, 80),
-          color: getComputedStyle(node).color,
-          expectedColor,
-        }));
-    });
-    const visibleSuggestionLabels = suggestionLabels.filter((item) => item?.visible);
-    const suggestionLabelColorsMatch = visibleSuggestionLabels.every((item) =>
-      item.color === item.expectedColor);
-    // Codex 26.721+ moved the real home content out of home.firstElementChild's
-    // descendant chain: that wrapper now only holds the (usually empty) native
-    // .home-banners slot, and the actual content became its sibling instead
-    // (see #244). Prefer a sibling of the banner-holding wrapper when present;
-    // fall back to the pre-26.721 first-child chain (deepest visible node)
-    // otherwise, so older Codex builds keep working unchanged.
-    const homeChildren = home?.children ? Array.from(home.children) : [];
-    const bannerHolder = homeChildren.find((el) => el.querySelector(${selectorLiteral("home-banners")}));
-    const siblingCandidates = homeChildren.filter((el) => el !== bannerHolder).map(box);
-    const heroChain = [];
-    for (let node = home?.firstElementChild ?? null; node && heroChain.length < 3;
-      node = node.firstElementChild) heroChain.push(node);
-    const boxableChain = heroChain.filter((node) => typeof node?.getBoundingClientRect === "function");
-    const chainCandidates = boxableChain.map(box);
-    const hero = siblingCandidates.find((item) => item?.visible && item.width >= 280 && item.height >= 120)
-      ?? chainCandidates.findLast((item) => item?.visible)
-      ?? siblingCandidates.find((item) => item?.visible)
-      ?? box(boxableChain[boxableChain.length - 1]);
-    const projectButton = box(home?.querySelector(${selectorLiteral("project-selector")} + " > button"));
-    const shell = box(document.querySelector(${selectorLiteral("shell-main")}));
-    const composer = box(document.querySelector(${selectorLiteral("composer-chrome")}));
-    const sidebar = box(document.querySelector(${selectorLiteral("left-panel")}));
-    const genericMain = box(document.querySelector('[data-ds-part="main"], [data-ds-part="home"]'));
-    const genericInput = box(document.querySelector('[data-ds-part="composer"]'));
-    const settingsBoxes = [
-      box(document.querySelector(${selectorLiteral("settings-panel")})),
-      box(document.querySelector(${selectorLiteral("appearance-radio")})),
-      box(document.querySelector(${stableTestidLiteral("theme-preview")})),
-    ];
-    const settings = settingsBoxes.find((item) => item?.visible) ??
-      settingsBoxes.find(Boolean) ?? null;
-    const runtime = window.__CODEX_DREAM_SKIN_STATE__;
-    const adopted = runtime?.styleMode === 'adopted' &&
-      [...document.adoptedStyleSheets].includes(runtime.styleSheet);
-    const fallback = runtime?.styleMode === 'style' &&
-      document.getElementById('codex-dream-skin-style') === runtime.styleNode;
-    const result = {
-      installed: document.documentElement.getAttribute('data-dream-skin') === 'active',
-      documentVisibility: document.visibilityState,
-      version: runtime?.version ?? null,
-      themeId: runtime?.themeId ?? null,
-      revision: runtime?.revision ?? null,
-      styleMode: runtime?.styleMode ?? null,
-      stylePresent: Boolean(adopted || fallback),
-      scope: runtime?.scope ?? null,
-      businessClassPollution: [...document.querySelectorAll('[class]')].filter((node) =>
-        [...node.classList].some((name) => /^(?:dream-|codex-dream-skin(?:-|$))/.test(name))
-      ).length,
-      homeRoute: Boolean(homeRoute),
-      homePresent: Boolean(home),
-      hero,
-      cards: cardBoxes,
-      visibleCardCount: visibleCards.length,
-      suggestionLabels,
-      suggestionLabelColorsMatch,
-      projectButton,
-      shell,
-      composer,
-      sidebar,
-      genericMain,
-      genericInput,
-      settings,
-      viewport: { width: innerWidth, height: innerHeight },
-      documentOverflow: {
-        x: document.documentElement.scrollWidth > document.documentElement.clientWidth,
-        y: document.documentElement.scrollHeight > document.documentElement.clientHeight,
-      },
-    };
-    return result;
-  })()`);
-  const nativeWindow = await inspectNativeWindow(session);
-  return assessRendererVerification(renderer, nativeWindow, {
-    skinVersion: SKIN_VERSION,
-    expectedThemeId,
-    expectedRevision,
-  });
+  return verifyRenderer(session, await inspectNativeWindow(session), expectedThemeId, expectedRevision);
 }
 
 export async function waitForVerifiedSession(
@@ -1690,7 +436,7 @@ async function runOneShot(options) {
           options.mode === "remove" ? "正在确认皮肤已暂停…" : "正在检查显示效果…",
         );
       }
-      const result = options.mode === "remove"
+      const result = (options.mode === "remove" || options.mode === "verify-removed")
         ? await verifyRemovedSession(session)
         : await waitForVerifiedSession(
           session,
@@ -1740,102 +486,12 @@ async function runOneShot(options) {
 
   console.log(JSON.stringify({ mode: options.mode, version: SKIN_VERSION, port: options.port, targets: results }, null, 2));
   const failed = results.length === 0 || results.some((item) =>
-    item.error || (options.mode === "remove" ? item.result !== true : !item.result?.pass));
+    item.error || (["remove", "verify-removed"].includes(options.mode) ? item.result !== true : !item.result?.pass));
   if (failed) process.exitCode = 2;
 }
 
-/**
- * Backoff for the watcher's CDP target-discovery loop.
- *
- * The ceiling used to be a flat 500ms, so once Codex exited the watcher kept
- * polling a dead endpoint about twice a second for as long as it stayed
- * loaded, writing `fetch failed` to the error log every 2s. Users reported the
- * machine becoming noticeably sluggish with no Codex running at all (#218).
- *
- * Simply stopping the watcher would be worse: a brief navigation, reload, or
- * renderer restart also fails discovery, and the watcher is what repaints the
- * skin afterwards — killing it is how live theme switching breaks (#200). So
- * the fast ramp is preserved for short outages and the ceiling escalates only
- * once the endpoint has been continuously unreachable, which is the shape of a
- * closed Codex rather than a reloading one.
- */
-export const DISCOVERY_BACKOFF = {
-  initialMs: 100,
-  factor: 1.6,
-  /** Ceiling while an outage still looks like a reload. */
-  ceilingMs: 500,
-  /** After this much continuous failure, treat Codex as gone. */
-  idleAfterMs: 10_000,
-  idleCeilingMs: 5_000,
-  /** And after this much, stop paying for polling almost entirely. */
-  dormantAfterMs: 60_000,
-  dormantCeilingMs: 30_000,
-};
-
-export function nextDiscoveryDelayMs(currentDelayMs, outageMs, config = DISCOVERY_BACKOFF) {
-  const ceiling = outageMs >= config.dormantAfterMs
-    ? config.dormantCeilingMs
-    : outageMs >= config.idleAfterMs
-      ? config.idleCeilingMs
-      : config.ceilingMs;
-  const base = Number.isFinite(currentDelayMs) && currentDelayMs > 0
-    ? currentDelayMs
-    : config.initialMs;
-  return Math.min(ceiling, Math.round(base * config.factor));
-}
-
-/**
- * Log cadence follows the backoff instead of a fixed 2s, so a watcher left
- * running overnight against a closed Codex cannot fill `injector-error.log`.
- */
-export function discoveryLogIntervalMs(delayMs, config = DISCOVERY_BACKOFF) {
-  return Math.max(2000, Math.min(delayMs * 4, config.dormantCeilingMs * 2));
-}
-
 export function earlyPayloadFor(payload, revision) {
-  if (payload.includes("dreamskin-file:video/mp4")) return "void 0;";
-  return `(() => {
-    const generationKey = "__CODEX_DREAM_SKIN_EARLY_GENERATION__";
-    const appliedKey = "__CODEX_DREAM_SKIN_EARLY_APPLIED__";
-    const generation = ${JSON.stringify(revision)};
-    window[generationKey] = generation;
-    let bootstrapTimer = null;
-    let timeout = null;
-    const stop = () => {
-      if (bootstrapTimer) clearInterval(bootstrapTimer);
-      bootstrapTimer = null;
-      if (timeout) clearTimeout(timeout);
-      timeout = null;
-    };
-    const hasCodexSurface = () => {
-      if (location.protocol !== "app:") return false;
-      const shell = document.querySelector(${selectorLiteral("shell-main")});
-      const sidebar = document.querySelector(${selectorLiteral("left-panel")});
-      const main = document.querySelector(${selectorLiteral("home-route")});
-      const settings = document.querySelector(${selectorLiteral("settings-panel")}) ||
-        document.querySelector(${selectorLiteral("appearance-radio")}) ||
-        document.querySelector(${stableTestidLiteral("theme-preview")});
-      const genericMain = document.querySelector('main, [role="main"]');
-      const genericInput = document.querySelector('textarea, [contenteditable="true"], [role="textbox"]');
-      const branded = Boolean(document.querySelector(
-        ${stableTestidLiteral("app-shell-header-context-menu-surface")},
-      ));
-      return Boolean((shell && sidebar) || settings || main ||
-        (genericMain && genericInput && branded));
-    };
-    const install = () => {
-      if (window[generationKey] !== generation) { stop(); return true; }
-      if (!document.documentElement || !hasCodexSurface()) return false;
-      stop();
-      ${payload};
-      window[appliedKey] = generation;
-      return true;
-    };
-    if (install()) return;
-    document.addEventListener?.("DOMContentLoaded", install, { once: true });
-    bootstrapTimer = setInterval(install, 250);
-    timeout = setTimeout(stop, 10000);
-  })()`;
+  return sharedEarlyPayloadFor(payload, revision);
 }
 
 function watchPayloadSources(themeDir, onDirty) {
@@ -1963,21 +619,15 @@ async function watchOperationState(statePath, onState) {
 
 async function runWatch(options) {
   let current = await loadPayload(options.themeDir);
-  const sessions = new Map();
+  const lifecycle = new WatcherLifecycle({ sessionFor: (record) => record.session });
+  const sessions = lifecycle.sessions;
+  const discoveryRetry = new DiscoveryRetry();
   const rejected = new Set();
-  let stopping = false;
   let reloadTimer = null;
   let reloadChain = Promise.resolve();
-  let discoveryDelayMs = DISCOVERY_BACKOFF.initialMs;
-  let lastListErrorAt = 0;
-  let discoveryOutageSince = 0;
   let operationSignalChain = Promise.resolve();
   let activeOperation = null;
   let pauseRecovery = null;
-  let controlOnly = false;
-  let mutationEpoch = 0;
-  let activeTargetSetups = 0;
-  const targetSetupWaiters = new Set();
   let wakeControlWait = null;
   const wakeControlLoop = () => {
     const wake = wakeControlWait;
@@ -1997,40 +647,15 @@ async function runWatch(options) {
     wakeControlWait = finish;
   });
   const stop = () => {
-    stopping = true;
+    lifecycle.transition("stopping");
     wakeControlLoop();
   };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
 
-  const beginTargetSetup = () => { activeTargetSetups += 1; };
-  const finishTargetSetup = () => {
-    activeTargetSetups = Math.max(0, activeTargetSetups - 1);
-    if (activeTargetSetups !== 0) return;
-    for (const resolve of targetSetupWaiters) resolve();
-    targetSetupWaiters.clear();
-  };
-  const waitForTargetSetups = async (timeoutMs = 2500) => {
-    if (activeTargetSetups === 0) return;
-    let timeout;
-    let release;
-    const completed = new Promise((resolve) => {
-      release = resolve;
-      targetSetupWaiters.add(resolve);
-    });
-    try {
-      await Promise.race([
-        completed,
-        new Promise((_, reject) => {
-          timeout = setTimeout(() => reject(new Error("Renderer setup did not quiesce for pause")), timeoutMs);
-        }),
-      ]);
-    } finally {
-      clearTimeout(timeout);
-      targetSetupWaiters.delete(release);
-    }
-  };
-
+  const beginTargetSetup = () => lifecycle.beginTargetSetup();
+  const finishTargetSetup = () => lifecycle.finishTargetSetup();
+  const waitForTargetSetups = (timeoutMs = 2500) => lifecycle.waitForTargetSetups(timeoutMs);
   const registerEarly = async (session, payload, revision) => {
     const result = await session.send("Page.addScriptToEvaluateOnNewDocument", {
       source: earlyPayloadFor(payload, revision),
@@ -2095,8 +720,8 @@ async function runWatch(options) {
   };
 
   const restoreAfterAbortedPause = async (operation) => {
-    mutationEpoch += 1;
-    controlOnly = false;
+    if (lifecycle.stopping) return;
+    lifecycle.transition("full", { invalidate: true });
     pauseRecovery = {
       token: operation.token,
       message: operation.message || "暂停失败，原皮肤已恢复",
@@ -2106,7 +731,8 @@ async function runWatch(options) {
   };
 
   const refreshPayload = async () => {
-    const refreshEpoch = mutationEpoch;
+    if (lifecycle.stopping) return;
+    const refreshEpoch = lifecycle.epoch;
     let next;
     try {
       next = await loadPayload(options.themeDir);
@@ -2128,7 +754,7 @@ async function runWatch(options) {
     }
     if (next.revision === current.revision) return;
     current = next;
-    if (controlOnly || mutationEpoch !== refreshEpoch) {
+    if (!lifecycle.canMutate(refreshEpoch)) {
       console.log(`[dream-skin] staged theme ${current.theme.id} while skin is paused`);
       return;
     }
@@ -2143,21 +769,25 @@ async function runWatch(options) {
         await presentOperationUi(
           session, operationToken, "loading", `正在应用「${current.theme.name}」…`,
         );
-        if (controlOnly || mutationEpoch !== refreshEpoch) continue;
+        if (!lifecycle.canMutate(refreshEpoch)) continue;
         const nextIdentifier = await registerEarlyForRecord(
           record, current.payload, current.revision,
         );
-        if (controlOnly || mutationEpoch !== refreshEpoch) {
+        if (!lifecycle.canMutate(refreshEpoch)) {
           await removeEarlyIdentifier(record, nextIdentifier);
           continue;
         }
         if (record.earlyScriptId) {
           await removeEarlyIdentifier(record, record.earlyScriptId);
         }
+        if (!lifecycle.canMutate(refreshEpoch)) {
+          await removeEarlyIdentifier(record, nextIdentifier);
+          continue;
+        }
         record.earlyScriptId = nextIdentifier;
         record.needsLoadFallback = !nextIdentifier;
         await applyLoadedToSession(session, current);
-        if (controlOnly || mutationEpoch !== refreshEpoch) continue;
+        if (!lifecycle.canMutate(refreshEpoch)) continue;
         const verification = await waitForVerifiedSession(
           session,
           Math.min(options.timeoutMs, 8000),
@@ -2180,6 +810,7 @@ async function runWatch(options) {
   };
 
   const queuePayloadRefresh = ({ staticChanged = false } = {}) => {
+    if (lifecycle.stopping) return;
     if (staticChanged) invalidateStaticPayloadAssets();
     if (reloadTimer) clearTimeout(reloadTimer);
     reloadTimer = setTimeout(() => {
@@ -2192,6 +823,7 @@ async function runWatch(options) {
   const closePayloadWatchers = watchPayloadSources(options.themeDir, queuePayloadRefresh);
   const closeOperationWatcher = await watchOperationState(options.operationState, (operation) => {
     operationSignalChain = operationSignalChain.then(async () => {
+      if (lifecycle.stopping) return;
       const previousOperation = activeOperation?.token === operation.token ? activeOperation : null;
       const busy = isFreshBusyOperation(operation);
       if (pauseRecovery && pauseRecovery.token !== operation.token) pauseRecovery = null;
@@ -2204,9 +836,8 @@ async function runWatch(options) {
         && (operation.status === "failed" || operation.status === "cancelled")
         && previousOperation?.status === "pausing";
       const pauseState = (busy && operation.status === "pausing") || operation.status === "paused";
-      if (pauseState && !controlOnly) {
-        controlOnly = true;
-        mutationEpoch += 1;
+      if (pauseState && !lifecycle.controlOnly) {
+        lifecycle.transition("control");
       }
       await Promise.all([...sessions.values()].map(async (record) => {
         if (record.session.closed) return;
@@ -2241,6 +872,7 @@ async function runWatch(options) {
         await Promise.all([...sessions.values()].map(async (record) => {
           await invalidateEarly(record, { strict: true });
         }));
+        if (lifecycle.stopping) return;
         await writeModeAck(options.operationAck, operation.token, "control");
       } else if (abortedPause) await restoreAfterAbortedPause(operation);
       else if (operation.status === "paused") {
@@ -2259,7 +891,7 @@ async function runWatch(options) {
   });
 
   try {
-    while (!stopping) {
+    while (!lifecycle.stopping) {
       if (activeOperation && !isFreshBusyOperation(activeOperation)) {
         const expiredOperation = activeOperation;
         activeOperation = null;
@@ -2274,11 +906,11 @@ async function runWatch(options) {
           );
         }));
         if (expiredOperation.status === "pausing") {
-          controlOnly = true;
+          lifecycle.transition("control");
           releaseControlSessions();
         }
       }
-      if (controlOnly && !activeOperation) {
+      if (lifecycle.controlOnly && !activeOperation) {
         releaseControlSessions();
         await waitForControlOperation();
         continue;
@@ -2286,43 +918,35 @@ async function runWatch(options) {
       let targets = [];
       try {
         targets = await listAppTargets(options.port);
-        discoveryDelayMs = DISCOVERY_BACKOFF.initialMs;
-        discoveryOutageSince = 0;
+        discoveryRetry.succeed();
       } catch (error) {
-        const now = Date.now();
-        if (!discoveryOutageSince) discoveryOutageSince = now;
-        const outageMs = now - discoveryOutageSince;
-        if (now - lastListErrorAt >= discoveryLogIntervalMs(discoveryDelayMs)) {
-          console.error(`[dream-skin] ${new Date().toISOString()} ${error.message}`);
-          lastListErrorAt = now;
+        const { retryMs, shouldLog } = discoveryRetry.fail();
+        if (shouldLog) {
+          console.error('[dream-skin] ' + new Date().toISOString() + ' ' + error.message);
         }
-        await new Promise((resolve) => setTimeout(resolve, discoveryDelayMs));
-        discoveryDelayMs = nextDiscoveryDelayMs(discoveryDelayMs, outageMs);
+        await new Promise((resolve) => setTimeout(resolve, retryMs));
         continue;
       }
-
-      if (controlOnly && !activeOperation) {
+      if (lifecycle.controlOnly && !activeOperation) {
         releaseControlSessions();
         continue;
       }
 
-      const activeIds = new Set(targets.map((target) => target.id));
-      for (const [id, record] of sessions) {
-        if (!activeIds.has(id) || record.session.closed) {
-          if (!record.session.closed && record.operationToken && !record.operationExternal) {
-            await bestEffortOperationUi(
-              record.session, "hide", record.operationToken, "loading", "",
-            );
-          }
-          record.session.close();
-          sessions.delete(id);
+      for (const [id, record] of lifecycle.staleSessions(targets)) {
+        if (!record.session.closed && record.operationToken && !record.operationExternal) {
+          await bestEffortOperationUi(
+            record.session, "hide", record.operationToken, "loading", "",
+          );
         }
+        await removeEarly(record);
+        record.session.close();
+        sessions.delete(id);
       }
-
       const cycleRecovery = activeOperation ? null : pauseRecovery;
       let recoveredPauseThisCycle = false;
       let recoveryFailedThisCycle = false;
       for (const target of targets) {
+        if (lifecycle.stopping) break;
         if (sessions.has(target.id)) continue;
         let session;
         let record;
@@ -2331,6 +955,7 @@ async function runWatch(options) {
         beginTargetSetup();
         try {
           session = await connectTarget(target, options.port);
+          if (lifecycle.stopping) throw new Error("Watcher stopped during renderer setup");
           record = {
             session,
             earlyScriptId: null,
@@ -2339,13 +964,14 @@ async function runWatch(options) {
             operationToken: null,
             operationExternal: false,
           };
-          connectionEpoch = mutationEpoch;
+          connectionEpoch = lifecycle.epoch;
           sessions.set(target.id, record);
           session.on("Page.loadEventFired", () => {
+            if (!lifecycle.canMutate() || !lifecycle.owns(target.id, session)) return;
             if (!record.needsLoadFallback && !current.mediaFilePath) return;
-            const fallbackEpoch = mutationEpoch;
+            const fallbackEpoch = lifecycle.epoch;
             setTimeout(() => {
-              if (session.closed || controlOnly || mutationEpoch !== fallbackEpoch
+              if (!lifecycle.canMutate(fallbackEpoch) || !lifecycle.owns(target.id, session)
                 || (!record.needsLoadFallback && !current.mediaFilePath)) return;
               const operation = (record.needsLoadFallback || current.theme?.artMetadata?.video)
                 ? applyLoadedToSession(session, current)
@@ -2358,19 +984,22 @@ async function runWatch(options) {
           const initialOperation = activeOperation;
           recoveryOperation = initialOperation ? null : cycleRecovery;
           const pausing = initialOperation?.status === "pausing";
-          if (!controlOnly) {
+          if (lifecycle.canMutate(connectionEpoch)) {
             try {
               record.earlyScriptId = await registerEarlyForRecord(
                 record, current.payload, current.revision,
               );
-              await session.evaluate(earlyPayloadFor(current.payload, current.revision));
-              if (controlOnly || mutationEpoch !== connectionEpoch) await invalidateEarly(record);
+              if (lifecycle.canMutate(connectionEpoch)) {
+                await session.evaluate(earlyPayloadFor(current.payload, current.revision));
+              }
+              if (!lifecycle.canMutate(connectionEpoch)) await invalidateEarly(record);
             } catch (error) {
               record.needsLoadFallback = true;
               console.error(`[dream-skin] early injection unavailable: ${error.message}`);
             }
           }
           const probe = await waitForCodexProbe(session);
+          if (lifecycle.stopping) throw new Error("Watcher stopped during renderer setup");
           if (!probe?.codex) {
             await removeEarly(record);
             if (probe?.excludedPetSurface && !await cleanupExcludedSurface(session)) {
@@ -2386,10 +1015,10 @@ async function runWatch(options) {
             continue;
           }
           rejected.delete(target.id);
-          if (controlOnly || pausing || mutationEpoch !== connectionEpoch) {
+          if (!lifecycle.canMutate(connectionEpoch) || pausing) {
             await invalidateEarly(record);
           }
-          if (controlOnly && !initialOperation) {
+          if (lifecycle.controlOnly && !initialOperation) {
             console.log(`[dream-skin] connected control-only target ${target.id}`);
             continue;
           }
@@ -2407,23 +1036,27 @@ async function runWatch(options) {
                 ? "暂停未完成，正在恢复原皮肤…"
               : `正在应用「${current.theme.name}」…`,
           );
-          if (controlOnly || pausing) {
+          if (!lifecycle.canMutate() || pausing) {
             continue;
           }
           const earlyApplied = await session.evaluate(
             `window.__CODEX_DREAM_SKIN_EARLY_APPLIED__ === ${JSON.stringify(current.revision)}`,
           );
           if (!earlyApplied || current.theme?.artMetadata?.video) {
-            if (controlOnly || mutationEpoch !== connectionEpoch) {
+            if (!lifecycle.canMutate(connectionEpoch)) {
               await invalidateEarly(record);
               continue;
             }
             await session.evaluate(
               `window.__CODEX_DREAM_SKIN_EARLY_GENERATION__ = ${JSON.stringify(`fallback:${current.revision}`)}`,
             );
+            if (!lifecycle.canMutate(connectionEpoch)) {
+              await invalidateEarly(record);
+              continue;
+            }
             await applyLoadedToSession(session, current);
-          } else await bindMediaFileToSession(session, current);
-          if (controlOnly || mutationEpoch !== connectionEpoch) {
+          } else if (lifecycle.canMutate(connectionEpoch)) await bindMediaFileToSession(session, current);
+          if (!lifecycle.canMutate(connectionEpoch)) {
             await invalidateEarly(record);
             continue;
           }
@@ -2477,7 +1110,7 @@ async function runWatch(options) {
           finishTargetSetup();
         }
       }
-      if (recoveredPauseThisCycle && !recoveryFailedThisCycle && !activeOperation
+      if (lifecycle.canMutate() && recoveredPauseThisCycle && !recoveryFailedThisCycle && !activeOperation
         && cycleRecovery?.token === pauseRecovery?.token) {
         await writeModeAck(options.operationAck, cycleRecovery.token, "full");
         pauseRecovery = null;
@@ -2486,6 +1119,7 @@ async function runWatch(options) {
       await new Promise((resolve) => setTimeout(resolve, pollDelay));
     }
   } finally {
+    stop();
     if (reloadTimer) clearTimeout(reloadTimer);
     closePayloadWatchers();
     closeOperationWatcher();
@@ -2497,6 +1131,7 @@ async function runWatch(options) {
         : Promise.resolve(false)));
     await Promise.all([...sessions.values()].map((record) => removeEarly(record)));
     for (const record of sessions.values()) record.session.close();
+    sessions.clear();
   }
 }
 

@@ -24,15 +24,22 @@ jobs:
           node-version: 22.22.2
           architecture: x64
 
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install shared manager dependencies
+        run: npm ci
+
       - name: Check synchronized cross-platform runtime assets
         shell: bash
         run: node tools/sync-runtime-assets.mjs --check
 
-      - name: Test and build runnable package
+      - name: Build runnable package
         shell: powershell
         run: |
           .\build.ps1 `
-            -SkillRoot (Join-Path $PWD 'windows') `
             -NodeExecutable (Get-Command node.exe).Source
 
       - name: Prepare Inno Setup

@@ -15,7 +15,6 @@ const projectRoot = path.resolve(macosRoot, "..");
 const validator = path.join(macosRoot, "assets", "theme-package-validator.mjs");
 const macosInjector = path.join(macosRoot, "scripts", "injector.mjs");
 const windowsInjector = path.join(projectRoot, "windows", "scripts", "injector.mjs");
-const importer = path.join(macosRoot, "scripts", "import-theme-zip-macos.sh");
 const fixtureImage = path.join(macosRoot, "assets", "portal-hero.png");
 const fixtureMp4 = Buffer.from((await fs.readFile(path.join(
   projectRoot, "tests", "fixtures", "h264-32x18-2fps.mp4.base64",
@@ -465,22 +464,7 @@ try {
   const extraField = await makeOfficial("extra-field", { extraManifestField: true });
   await expectRejected(extraField.source, "macos", /unsupported field unexpected/, "extra-field");
 
-  if (process.platform === "darwin" &&
-    process.env.CODEX_DREAM_SKIN_SKIP_SIGNED_RUNTIME_TESTS !== "1") {
-    const importHome = path.join(tempRoot, "import-home");
-    const active = path.join(importHome, "Library", "Application Support", "CodexDreamSkinStudio", "theme");
-    await fs.mkdir(active, { recursive: true });
-    await fs.copyFile(path.join(base.source, "theme.json"), path.join(active, "theme.json"));
-    await fs.copyFile(path.join(base.source, "background.png"), path.join(active, "background.png"));
-    const activeBefore = await Promise.all([
-      fs.readFile(path.join(active, "theme.json")),
-      fs.readFile(path.join(active, "background.png")),
-    ]);
-    const oversizedArchive = path.join(tempRoot, "oversized-source.zip");
-    const oversizedHandle = await fs.open(oversizedArchive, "wx");
-    try {
-      await oversizedHandle.truncate((160 * 1024 * 1024) + 1);
-    } finally {
+} finally {
       await oversizedHandle.close();
     }
     await assert.rejects(run(importer, ["--file", oversizedArchive], {

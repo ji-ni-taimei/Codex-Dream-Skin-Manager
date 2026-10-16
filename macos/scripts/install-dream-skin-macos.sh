@@ -4,15 +4,17 @@ set -euo pipefail
 . "$(cd "$(dirname "$0")" && pwd -P)/common-macos.sh"
 
 PORT=9341
-CREATE_LAUNCHERS="true"
 LAUNCH_AFTER_INSTALL="true"
 IN_PLACE="false"
+MANAGER_LOCK=""
+MANAGER_LOCK_OWNER=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --port) PORT="${2:-}"; shift 2 ;;
-    --no-launchers) CREATE_LAUNCHERS="false"; shift ;;
     --no-launch) LAUNCH_AFTER_INSTALL="false"; shift ;;
     --in-place) IN_PLACE="true"; shift ;;
+    --manager-lock) MANAGER_LOCK="$2"; shift 2 ;;
+    --manager-lock-owner) MANAGER_LOCK_OWNER="$2"; shift 2 ;;
     *) fail "Unknown installer argument: $1" ;;
   esac
 done
@@ -66,6 +68,11 @@ rollback_deployed_project() {
 
 DEPLOY_PREVIOUS=""
 
+if [ -n "$MANAGER_LOCK" ]; then
+  . "$SCRIPT_DIR/theme-switch-lock-macos.sh"
+  assert_inherited_theme_switch_lock "$MANAGER_LOCK" "$MANAGER_LOCK_OWNER"
+fi
+
 discover_codex_app
 if [ "$IN_PLACE" = "false" ] && [ "$PROJECT_ROOT" != "$INSTALL_ROOT" ]; then
   # Run the cheap precondition before any engine bytes move: aborting after
@@ -75,7 +82,7 @@ if [ "$IN_PLACE" = "false" ] && [ "$PROJECT_ROOT" != "$INSTALL_ROOT" ]; then
   /bin/mkdir -p "$(dirname "$INSTALL_ROOT")"
   deploy_project
   install_args=(--in-place --port "$PORT")
-  [ "$CREATE_LAUNCHERS" = "true" ] || install_args+=(--no-launchers)
+  [ -z "$MANAGER_LOCK" ] || install_args+=(--manager-lock "$MANAGER_LOCK" --manager-lock-owner "$MANAGER_LOCK_OWNER")
   [ "$LAUNCH_AFTER_INSTALL" = "true" ] || install_args+=(--no-launch)
   if "$INSTALL_ROOT/scripts/install-dream-skin-macos.sh" "${install_args[@]}"; then
     commit_deployed_project
@@ -91,8 +98,10 @@ require_macos_runtime
 ensure_state_root
 codex_is_running && fail "Close Codex before installation so config.toml cannot be rewritten while the app is saving it."
 seed_bundled_presets
+manager_switch_args=()
+[ -z "$MANAGER_LOCK" ] || manager_switch_args=(--lock-token "$MANAGER_LOCK" --lock-owner "$MANAGER_LOCK_OWNER")
 if [ ! -f "$THEME_DIR/theme.json" ]; then
-  "$SCRIPT_DIR/switch-theme-macos.sh" --id preset-gothic-void-crusade --no-apply >/dev/null
+  "$SCRIPT_DIR/switch-theme-macos.sh" --id preset-gothic-void-crusade --no-apply "${manager_switch_args[@]}" >/dev/null
 else
   # Re-stage official presets so metadata upgrades (e.g. the #183 appearance
   # pin) reach an active copy staged by an older engine.
@@ -103,48 +112,17 @@ try { id = String(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).id ?? "")
 process.stdout.write(/^preset-[A-Za-z0-9_-]{1,72}$/.test(id) ? id : "");
 ' "$THEME_DIR/theme.json")"
   if [ -n "$ACTIVE_THEME_ID" ] && [ -d "$STATE_ROOT/themes/$ACTIVE_THEME_ID" ]; then
-    "$SCRIPT_DIR/switch-theme-macos.sh" --id "$ACTIVE_THEME_ID" --no-apply >/dev/null
+    "$SCRIPT_DIR/switch-theme-macos.sh" --id "$ACTIVE_THEME_ID" --no-apply "${manager_switch_args[@]}" >/dev/null
   fi
 fi
 [ -f "$CONFIG_PATH" ] || fail "Codex config not found: $CONFIG_PATH. Launch Codex once, close it, and rerun the installer."
 "$NODE" "$INJECTOR" --check-payload --theme-dir "$THEME_DIR" >/dev/null
 sync_appearance_pin
 
-shell_quote() {
-  "$NODE" -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$1"
-}
-
-write_launcher() {
-  local target="$1"
-  local command="$2"
-  if [ -e "$target" ] && ! /usr/bin/grep -q '^# CodexDreamSkinStudio launcher$' "$target" 2>/dev/null; then
-    fail "Refusing to overwrite an unrelated Desktop file: $target"
-  fi
-  /usr/bin/printf '%s\n' \
-    '#!/bin/bash' \
-    '# CodexDreamSkinStudio launcher' \
-    'set -e' \
-    "$command" > "$target"
-  /bin/chmod 700 "$target"
-}
-
-if [ "$CREATE_LAUNCHERS" = "true" ]; then
-  /bin/mkdir -p "$HOME/Desktop"
-  start_script="$(shell_quote "$SCRIPT_DIR/start-dream-skin-macos.sh")"
-  customize_script="$(shell_quote "$SCRIPT_DIR/customize-theme-macos.sh")"
-  verify_script="$(shell_quote "$SCRIPT_DIR/verify-dream-skin-macos.sh")"
-  restore_script="$(shell_quote "$SCRIPT_DIR/restore-dream-skin-macos.sh")"
-  screenshot="$(shell_quote "$HOME/Desktop/Codex Dream Skin Verification.png")"
-  write_launcher "$HOME/Desktop/Codex Dream Skin.command" "exec $start_script --port $PORT --prompt-restart"
-  write_launcher "$HOME/Desktop/Codex Dream Skin - Customize.command" "exec $customize_script"
-  write_launcher "$HOME/Desktop/Codex Dream Skin - Verify.command" "$verify_script --screenshot $screenshot && /usr/bin/open $screenshot"
-  write_launcher "$HOME/Desktop/Codex Dream Skin - Restore.command" "exec $restore_script --restore-base-theme --restart-codex"
-fi
-
 printf 'Codex Dream Skin Studio %s installed at %s for Codex %s using Dream Skin bundled Node.js %s.\n' \
   "$SKIN_VERSION" "$PROJECT_ROOT" "$CODEX_VERSION" "$NODE_VERSION"
-printf 'Use the Desktop launchers to customize, start, verify, or restore the official appearance.\n'
-printf 'Bundled presets are ready in your theme library — pick one from the menu bar (已保存的主题) or switch-theme.\n'
+printf 'Open the Dream Skin manager to customize, apply or restore a theme.\n'
+printf 'Bundled presets are ready in your theme library — pick one in the Dream Skin manager.\n'
 
 if [ "$LAUNCH_AFTER_INSTALL" = "true" ]; then
   "$SCRIPT_DIR/start-dream-skin-macos.sh" --port "$PORT" --prompt-restart

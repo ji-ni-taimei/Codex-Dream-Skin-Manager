@@ -7,4 +7,5 @@ ensure_state_root
 NODE="$PROJECT_ROOT/runtime/node/bin/node"
 [ -f "$NODE" ] && [ -x "$NODE" ] && [ ! -L "$NODE" ] || fail "Bundled Node.js is missing."
 /usr/bin/codesign --verify --strict "$NODE" >/dev/null 2>&1 || fail "Bundled Node.js signature is invalid."
-seed_bundled_presets
+seed_bundled_presets >/dev/null
+printf '{"initialized":true}\n'

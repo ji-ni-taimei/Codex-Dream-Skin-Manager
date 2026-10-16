@@ -16,7 +16,6 @@ while IFS= read -r file; do "$NODE" --check "$file" >/dev/null; done < <(
 # same source aborts at runtime under a UTF-8 locale with `set -u` and masks
 # the real failure behind a bogus "unbound variable" (#251).
 "$NODE" "$ROOT/tests/shell-braced-vars-before-cjk.test.mjs"
-"$NODE" "$ROOT/tests/manager-actions-contract.test.mjs"
 "$NODE" "$ROOT/tests/bundled-node-runtime.test.mjs"
 
 ZH_COPY="$(DREAMSKIN_LANG=zh-CN /bin/bash -c '
@@ -42,22 +41,13 @@ if /usr/bin/grep -R -n -E '(writeFile|rename|copyFile|rm).*app\.asar' "$ROOT/scr
   exit 1
 fi
 if /usr/bin/grep -R -n --include='*.sh' -E '/usr/bin/python3|(^|[[:space:]])eval([[:space:]]|$)' \
-  "$ROOT/scripts" "$ROOT/menubar" >/dev/null; then
+  "$ROOT/scripts" >/dev/null; then
   printf 'Runtime shell (scripts + menu bar) must parse JSON with bundled Node.js or plain shell, without python3 or eval.\n' >&2
   exit 1
 fi
 if /usr/bin/grep -R -n --include='*.sh' -E '/usr/bin/osascript[[:space:]]+-e[[:space:]]+"' \
-  "$ROOT/scripts" "$ROOT/menubar" >/dev/null; then
+  "$ROOT/scripts" >/dev/null; then
   printf 'Dynamic AppleScript must be passed through argv, not interpolated into osascript -e.\n' >&2
-  exit 1
-fi
-if ! /usr/bin/grep -F -q 'sfimage=paintpalette.fill' \
-  "$ROOT/menubar/codex_dream_skin.10s.sh"; then
-  printf 'SwiftBar menu title must retain the Dream Skin palette icon.\n' >&2
-  exit 1
-fi
-if ! /usr/bin/grep -F -q 'flag: "wx"' "$ROOT/scripts/write-theme.mjs"; then
-  printf 'Theme writes must create randomized temporary files exclusively.\n' >&2
   exit 1
 fi
 if /usr/bin/grep -E -q 'Input\.dispatch(KeyEvent|MouseEvent)' "$ROOT/scripts/injector.mjs"; then
@@ -70,39 +60,6 @@ if /usr/bin/grep -F -q 'CODEX_EXPECTED_TEAM_ID' "$ROOT/scripts/common-macos.sh" 
   exit 1
 fi
 
-# The native menu bar control plane and XCTest require a complete, matching
-# Xcode platform. CommandLineTools-only hosts report this platform blocker;
-# build-menubar-app.sh is still independently verifiable with DREAMSKIN_SDK.
-if /usr/bin/xcrun --sdk macosx --show-sdk-platform-path >/dev/null 2>&1; then
-  /usr/bin/swift build --package-path "$ROOT/menubar-app" --product CodexDreamSkinMenuBar
-  /usr/bin/swift test --package-path "$ROOT/menubar-app"
-else
-  printf 'SKIP: native SwiftPM build/XCTest require a full matching Xcode macOS platform.\n'
-fi
-/usr/bin/plutil -lint "$ROOT/menubar-app/Resources/Info.plist.template" >/dev/null
-/usr/bin/grep -F -q '<key>LSUIElement</key>' "$ROOT/menubar-app/Resources/Info.plist.template"
-/usr/bin/grep -F -q '<key>LSMinimumSystemVersion</key>' "$ROOT/menubar-app/Resources/Info.plist.template"
-/usr/bin/grep -F -q '<key>CFBundleURLSchemes</key>' "$ROOT/menubar-app/Resources/Info.plist.template"
-/usr/bin/grep -F -q '<string>dreamskin</string>' "$ROOT/menubar-app/Resources/Info.plist.template"
-/usr/bin/grep -F -q '"assets/selectors.json"' \
-  "$ROOT/menubar-app/Sources/CodexDreamSkinMenuBar/AppDelegate.swift"
-/usr/bin/grep -F -q 'CommunityRecovery.preserveRollbackSnapshot' \
-  "$ROOT/menubar-app/Sources/CodexDreamSkinMenuBar/AppDelegate.swift"
-/usr/bin/grep -F -q 'recovery/community-*/active-before' \
-  "$ROOT/scripts/switch-theme-macos.sh"
-/usr/bin/grep -F -q 'CFBundleURLTypes.0.CFBundleURLSchemes.0' "$ROOT/scripts/build-dmg.sh"
-for required_runtime in apply-community-theme-macos.sh snapshot-active-theme-macos.sh \
-  theme-content-fingerprint.mjs theme-switch-lock-macos.sh localization-macos.sh \
-  manager-actions-macos.sh check-image-dimensions.mjs; do
-  /usr/bin/grep -F -q "$required_runtime" "$ROOT/scripts/build-dmg.sh"
-done
-for manager_helper in delete-theme-macos.mjs import-batch-macos.mjs \
-  list-manager-themes-macos.mjs validate-image-macos.mjs; do
-  /usr/bin/grep -F -q "$manager_helper" "$ROOT/scripts/build-menubar-app.sh"
-  /usr/bin/grep -F -q "scripts/$manager_helper" \
-    "$ROOT/menubar-app/Sources/CodexDreamSkinMenuBar/AppDelegate.swift"
-  /usr/bin/grep -F -q "$manager_helper" "$ROOT/scripts/build-dmg.sh"
-done
 UPDATE_JSON="$({
   CODEX_DREAM_SKIN_TEST_RESPONSE_FILE="$ROOT/tests/fixtures/latest-release.json" \
     "$ROOT/scripts/check-update-macos.sh" --json
@@ -113,23 +70,6 @@ UPDATE_JSON="$({
   if (!value.updateAvailable) process.exit(1);
   if (value.releaseUrl !== "https://github.com/xxloocee/Codex-Dream-Skin-Manager/releases/latest") process.exit(1);
 ' "$UPDATE_JSON" "$(cat "$ROOT/VERSION")"
-if /usr/bin/grep -R -n -E --exclude-dir='.build' \
-  --exclude-dir='.build-*' \
-  'xattr|spctl[[:space:]]+--master-disable' \
-  "$ROOT/menubar-app" "$ROOT/scripts/build-menubar-app.sh" "$ROOT/scripts/build-dmg.sh" >/dev/null; then
-  printf 'Native distribution must not bypass Gatekeeper or remove quarantine attributes.\n' >&2
-  exit 1
-fi
-if /usr/bin/grep -n -F -q 'xattr' \
-  "$ROOT/scripts/build-client-release.sh" "$ROOT/scripts/build-release.sh" >/dev/null; then
-  printf 'Standalone release builders must not strip quarantine or include the restricted Arina preset.\n' >&2
-  exit 1
-fi
-if ! /usr/bin/grep -F -q "presets/preset-arina-hashimoto/" \
-  "$ROOT/scripts/build-client-release.sh" "$ROOT/scripts/build-release.sh"; then
-  printf 'Standalone release builders must explicitly exclude the restricted Arina preset.\n' >&2
-  exit 1
-fi
 if ! /usr/bin/grep -F -q 'DEPLOY_PREVIOUS' "$ROOT/scripts/install-dream-skin-macos.sh" ||
    ! /usr/bin/grep -F -q 'rollback_deployed_project' "$ROOT/scripts/install-dream-skin-macos.sh"; then
   printf 'The macOS outer installer must roll back a failed engine deployment.\n' >&2
@@ -152,18 +92,6 @@ if [ -z "$INSTALL_DISCOVER_LINE" ] || [ -z "$INSTALL_GUARD_LINE" ] ||
   printf 'App discovery and the Codex-running guard must run in order before deploy_project.\n' >&2
   exit 1
 fi
-if /usr/bin/grep -F -q \
-  'message: "请先退出 ChatGPT，再从菜单选择“安装 / 升级引擎”。' \
-  "$ROOT/menubar-app/Sources/CodexDreamSkinMenuBar/AppDelegate.swift"; then
-  printf 'The menu bar must not attribute every engine-install failure to ChatGPT still running.\n' >&2
-  exit 1
-fi
-if ! /usr/bin/grep -F -q '# CodexDreamSkinStudio launcher' \
-   "$ROOT/scripts/restore-dream-skin-macos.sh"; then
-  printf 'macOS uninstall must remove only launchers owned by Dream Skin.\n' >&2
-  exit 1
-fi
-
 # Shared runtime contract: selectors and renderer/CSS sources are compiled
 # once, then staged byte-for-byte into both platform asset directories.
 PROJECT_ROOT="$(cd "$ROOT/.." && pwd -P)"
@@ -203,90 +131,9 @@ fi
 "$NODE" "$ROOT/tests/safe-css-validator.test.mjs"
 "$NODE" "$ROOT/tests/theme-stage.test.mjs"
 "$NODE" "$ROOT/tests/theme-package-validator.test.mjs"
-"$NODE" "$ROOT/tests/theme-import-publish.test.mjs"
-"$NODE" "$ROOT/tests/theme-zip-snapshot.test.mjs"
-"$NODE" "$ROOT/tests/bounded-community-http.test.mjs"
-if [ "${CODEX_DREAM_SKIN_SKIP_SIGNED_RUNTIME_TESTS:-0}" = "1" ]; then
-  printf 'SKIP: community import identity integration requires an installed, signed ChatGPT runtime.\n'
-else
-  "$ROOT/tests/theme-import-identity.test.sh"
-fi
 "$ROOT/tests/community-apply-transaction.test.sh"
-"$ROOT/tests/theme-zip-extract.test.sh"
 "$ROOT/tests/installer-preflight.test.sh"
 "$NODE" "$ROOT/tests/theme-config.test.mjs"
-
-# check-image-dimensions rejects decompression bombs before sips can rasterize them.
-write_png_header() { # <path> <width> <height>
-  "$NODE" -e '
-    const fs = require("node:fs");
-    const buffer = Buffer.alloc(24);
-    Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]).copy(buffer, 0);
-    buffer.writeUInt32BE(13, 8);
-    buffer.write("IHDR", 12, "ascii");
-    buffer.writeUInt32BE(Number(process.argv[2]), 16);
-    buffer.writeUInt32BE(Number(process.argv[3]), 20);
-    fs.writeFileSync(process.argv[1], buffer);
-  ' "$1" "$2" "$3"
-}
-write_valid_png() { # <path> <width> <height>
-  "$NODE" -e '
-    const fs = require("node:fs");
-    const { deflateSync } = require("node:zlib");
-    const table = new Uint32Array(256);
-    for (let index = 0; index < table.length; index += 1) {
-      let value = index;
-      for (let bit = 0; bit < 8; bit += 1) {
-        value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
-      }
-      table[index] = value;
-    }
-    const crc32 = (buffer) => {
-      let crc = 0xffffffff;
-      for (const byte of buffer) crc = table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
-      return (crc ^ 0xffffffff) >>> 0;
-    };
-    const chunk = (type, body) => {
-      const typed = Buffer.concat([Buffer.from(type, "ascii"), body]);
-      const result = Buffer.alloc(typed.length + 8);
-      result.writeUInt32BE(body.length, 0);
-      typed.copy(result, 4);
-      result.writeUInt32BE(crc32(typed), typed.length + 4);
-      return result;
-    };
-    const width = Number(process.argv[2]);
-    const height = Number(process.argv[3]);
-    const header = Buffer.alloc(13);
-    header.writeUInt32BE(width, 0);
-    header.writeUInt32BE(height, 4);
-    header[8] = 8;
-    header[9] = 2;
-    const pixels = Buffer.alloc((width * 3 + 1) * height);
-    fs.writeFileSync(process.argv[1], Buffer.concat([
-      Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]),
-      chunk("IHDR", header),
-      chunk("IDAT", deflateSync(pixels)),
-      chunk("IEND", Buffer.alloc(0)),
-    ]));
-  ' "$1" "$2" "$3"
-}
-CID_TMP="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/codex-dream-skin-cid.XXXXXX")"
-write_png_header "$CID_TMP/huge.png" 20000 20000
-if "$NODE" "$ROOT/scripts/check-image-dimensions.mjs" "$CID_TMP/huge.png" >/dev/null 2>&1; then
-  printf 'check-image-dimensions accepted a 20000x20000 (400 MP) image.\n' >&2
-  /bin/rm -rf "$CID_TMP"; exit 1
-fi
-write_valid_png "$CID_TMP/ok.png" 1600 900
-if ! "$NODE" "$ROOT/scripts/check-image-dimensions.mjs" "$CID_TMP/ok.png" >/dev/null 2>&1; then
-  printf 'check-image-dimensions rejected a valid 1600x900 image.\n' >&2
-  /bin/rm -rf "$CID_TMP"; exit 1
-fi
-/usr/bin/printf 'not-an-image' > "$CID_TMP/invalid.png"
-if "$NODE" "$ROOT/scripts/check-image-dimensions.mjs" "$CID_TMP/invalid.png" >/dev/null 2>&1; then
-  printf 'check-image-dimensions accepted an image whose dimensions could not be determined safely.\n' >&2
-  /bin/rm -rf "$CID_TMP"; exit 1
-fi
-/bin/rm -rf "$CID_TMP"
 
 # Every bundled preset must be a valid, injectable theme pack with a preset-* id.
 for preset in "$ROOT"/presets/preset-*/; do
@@ -320,95 +167,6 @@ cleanup_tests() {
   /bin/rm -rf "$TMP"
 }
 trap cleanup_tests EXIT
-
-# Standalone archives flatten macos/ to their root. Prompt guides and NOTICE
-# must describe that layout and must not claim that Windows assets are bundled.
-STANDALONE_ROOT="$TMP/standalone-root"
-STANDALONE_DOCS="$TMP/standalone-source-docs"
-/bin/mkdir -p "$STANDALONE_ROOT" \
-  "$STANDALONE_DOCS/images/gallery" "$STANDALONE_DOCS/images/presets"
-/usr/bin/printf '%s\n' \
-  'macos/presets/preset-arina-hashimoto/ macos/assets/portal-hero.png macos/NOTICE.md windows/assets/theme.json' \
-  > "$STANDALONE_DOCS/reference-background-prompt-guide.md"
-/bin/cp "$STANDALONE_DOCS/reference-background-prompt-guide.md" \
-  "$STANDALONE_DOCS/reference-background-prompt-guide.en.md"
-/bin/cp "$STANDALONE_DOCS/reference-background-prompt-guide.md" \
-  "$STANDALONE_DOCS/background-generation-prompts.md"
-: > "$STANDALONE_DOCS/images/gallery/skin-01.jpg"
-: > "$STANDALONE_DOCS/images/presets/arina-hashimoto-source.png"
-: > "$STANDALONE_DOCS/images/hero-banner-red-white.png"
-/usr/bin/printf '%s\n' \
-  '- `presets/preset-arina-hashimoto/background.jpg`' \
-  '- `../windows/assets/dream-reference.jpg`' \
-  '- `../docs/images/presets/arina-hashimoto-source.png`' \
-  "They are included at the maintainer's direction as a local theme preset, source archive, and real runtime previews." \
-  > "$STANDALONE_ROOT/NOTICE.md"
-"$ROOT/scripts/prepare-standalone-docs.sh" "$STANDALONE_ROOT" "$STANDALONE_DOCS"
-/usr/bin/grep -F -q 'presets/preset-arina-hashimoto/' \
-  "$STANDALONE_ROOT/docs/reference-background-prompt-guide.md"
-/usr/bin/grep -F -q 'assets/portal-hero.png' \
-  "$STANDALONE_ROOT/docs/reference-background-prompt-guide.md"
-/usr/bin/grep -F -q 'https://github.com/Fei-Away/Codex-Dream-Skin/blob/main/windows/assets/theme.json' \
-  "$STANDALONE_ROOT/docs/reference-background-prompt-guide.md"
-[ -f "$STANDALONE_ROOT/docs/images/hero-banner-red-white.png" ]
-[ ! -e "$STANDALONE_ROOT/docs/images/presets/arina-hashimoto-source.png" ]
-/usr/bin/grep -F -q 'arina-hashimoto' "$STANDALONE_ROOT/NOTICE.md"
-/usr/bin/grep -F -q '`docs/images/presets/arina-hashimoto-source.png`' \
-  "$STANDALONE_ROOT/NOTICE.md"
-/usr/bin/grep -F -q 'not included in this macOS archive' \
-  "$STANDALONE_ROOT/NOTICE.md"
-
-# A standalone studio can build another archive from its already-rewritten
-# docs. Source discovery must stay inside that studio and URL rewriting must
-# be idempotent.
-STANDALONE_SOURCE="$TMP/standalone-source"
-STANDALONE_REPACK="$TMP/standalone-repack"
-/bin/mkdir -p "$STANDALONE_SOURCE/scripts" "$STANDALONE_REPACK"
-/bin/cp "$ROOT/scripts/prepare-standalone-docs.sh" "$STANDALONE_SOURCE/scripts/"
-/bin/cp -R "$STANDALONE_ROOT/docs" "$STANDALONE_SOURCE/docs"
-/bin/cp "$STANDALONE_ROOT/NOTICE.md" "$STANDALONE_REPACK/NOTICE.md"
-"$STANDALONE_SOURCE/scripts/prepare-standalone-docs.sh" "$STANDALONE_REPACK"
-REPACK_GUIDE="$STANDALONE_REPACK/docs/reference-background-prompt-guide.md"
-/usr/bin/grep -F -q \
-  'https://github.com/Fei-Away/Codex-Dream-Skin/blob/main/windows/assets/theme.json' \
-  "$REPACK_GUIDE"
-if /usr/bin/grep -E -q 'tree/main/windows/assets|blob/main/https://' "$REPACK_GUIDE"; then
-  printf 'Standalone prompt URL rewriting is not idempotent.\n' >&2
-  exit 1
-fi
-
-# SwiftBar attributes are line-based; unsafe engine paths must never be emitted
-# into bash= or param*= fields.
-UNSAFE_ENGINE="$TMP/unsafe\"engine"
-/bin/mkdir -p "$UNSAFE_ENGINE/scripts"
-/usr/bin/printf '#!/bin/bash\ntrue\n' > "$UNSAFE_ENGINE/scripts/start-dream-skin-macos.sh"
-/bin/chmod +x "$UNSAFE_ENGINE/scripts/start-dream-skin-macos.sh"
-UNSAFE_MENU_OUTPUT="$(
-  /usr/bin/env CODEX_DREAM_SKIN_ENGINE="$UNSAFE_ENGINE" \
-    "$ROOT/menubar/codex_dream_skin.10s.sh"
-)"
-/usr/bin/printf '%s\n' "$UNSAFE_MENU_OUTPUT" | /usr/bin/grep -F -q \
-  'Engine path contains unsupported SwiftBar characters'
-if /usr/bin/printf '%s\n' "$UNSAFE_MENU_OUTPUT" | /usr/bin/grep -F -q 'bash='; then
-  printf 'SwiftBar emitted command attributes for an unsafe engine path.\n' >&2
-  exit 1
-fi
-
-MENU_HOME="$TMP/menu-home"
-MENU_IMAGES="$MENU_HOME/Library/Application Support/CodexDreamSkinStudio/images"
-/bin/mkdir -p "$MENU_IMAGES"
-: > "$MENU_IMAGES/safe-image.png"
-: > "$MENU_IMAGES/"$'bad\timage.png'
-: > "$MENU_IMAGES/"$'bad\033image.png'
-MENU_IMAGE_OUTPUT="$(
-  /usr/bin/env HOME="$MENU_HOME" CODEX_DREAM_SKIN_ENGINE="$ROOT" \
-    "$ROOT/menubar/codex_dream_skin.10s.sh"
-)"
-/usr/bin/printf '%s\n' "$MENU_IMAGE_OUTPUT" | /usr/bin/grep -F -q 'safe-image.png'
-if /usr/bin/printf '%s\n' "$MENU_IMAGE_OUTPUT" | /usr/bin/grep -F -q 'bad'; then
-  printf 'SwiftBar emitted a control-character image filename.\n' >&2
-  exit 1
-fi
 
 # seed_bundled_presets is idempotent and must never touch user custom-* or
 # legacy preset-* packs that are already in the library.
@@ -822,46 +580,6 @@ if /usr/bin/grep -F -q 'index($0, "--port " port)' "$ROOT/scripts/common-macos.s
   printf 'injector discovery still accepts a near-prefix port.\n' >&2
   exit 1
 fi
-APPLY_SCRIPT="$ROOT/scripts/apply-from-menubar-macos.sh"
-/usr/bin/grep -F -q 'if hot_reapply_theme "$PORT" 8000; then' "$APPLY_SCRIPT"
-/usr/bin/grep -F -q 'SESSION="off"' "$APPLY_SCRIPT"
-/usr/bin/grep -F -q 'if ! confirm "$PROMPT" "$OK_LABEL"; then' "$APPLY_SCRIPT"
-/usr/bin/grep -F -q '"$SCRIPT_DIR/start-dream-skin-macos.sh" --prompt-restart' "$APPLY_SCRIPT"
-if /usr/bin/grep -F -q 'CODEX_RUNNING=' "$APPLY_SCRIPT" ||
-   /usr/bin/grep -F -q 'MENU_ACTION=' "$APPLY_SCRIPT" ||
-   /usr/bin/grep -F -q 'OPEN_PROMPT=' "$APPLY_SCRIPT"; then
-  printf 'menu apply must preserve the original session-driven prompt model.\n' >&2
-  exit 1
-fi
-HOT_LINE="$(/usr/bin/grep -n 'hot_reapply_theme "$PORT" 8000' "$APPLY_SCRIPT" | /usr/bin/head -1 | /usr/bin/cut -d: -f1)"
-CONFIRM_LINE="$(/usr/bin/grep -n 'if ! confirm "$PROMPT" "$OK_LABEL"; then' "$APPLY_SCRIPT" | /usr/bin/head -1 | /usr/bin/cut -d: -f1)"
-START_LINE="$(/usr/bin/grep -n 'start-dream-skin-macos.sh" --prompt-restart' "$APPLY_SCRIPT" | /usr/bin/head -1 | /usr/bin/cut -d: -f1)"
-if [ -z "$HOT_LINE" ] || [ -z "$CONFIRM_LINE" ] || [ -z "$START_LINE" ] ||
-   [ "$CONFIRM_LINE" -ge "$HOT_LINE" ] ||
-   [ "$HOT_LINE" -ge "$START_LINE" ]; then
-  printf 'menu apply must keep its confirmation and hot-reapply before falling back to start.\n' >&2
-  exit 1
-fi
-MENU_SOURCE="$ROOT/menubar-app/Sources/CodexDreamSkinMenuBar/AppDelegate.swift"
-OPEN_CODEX_BODY="$(/usr/bin/sed -n '/@objc private func openCodex()/,/@objc private func openDreamSkinWebsite()/p' "$MENU_SOURCE")"
-/usr/bin/grep -F -q 'addActionItem(copy.text(.openChatGPT), action: #selector(openCodex), enabled: !busy)' "$MENU_SOURCE"
-/usr/bin/grep -F -q 'showError(title: copy.text(.notFoundTitle), message: copy.text(.notFoundMessage))' "$MENU_SOURCE"
-/usr/bin/grep -F -q 'addLanguageMenu()' "$MENU_SOURCE"
-/usr/bin/grep -F -q 'DreamSkinLanguage.defaultsKey' "$MENU_SOURCE"
-/usr/bin/grep -F -q 'environment["DREAMSKIN_LANG"] = DreamSkinLanguage.stored().environmentValue' \
-  "$ROOT/menubar-app/Sources/CodexDreamSkinMenuBar/ScriptRunner.swift"
-/usr/bin/grep -F -q 'guard !engineNeedsInstall(),' "$MENU_SOURCE"
-/usr/bin/grep -F -q 'let script = installedScript(named: "start-dream-skin-macos.sh") else {' "$MENU_SOURCE"
-/usr/bin/grep -F -q 'NSWorkspace.shared.openApplication(at: appURL, configuration: configuration)' "$MENU_SOURCE"
-/usr/bin/grep -F -q 'ScriptRunner.run(script: script)' "$MENU_SOURCE"
-/usr/bin/grep -F -q 'title: self.copy.text(.openFailedTitle),' "$MENU_SOURCE"
-if /usr/bin/grep -F -q 'applyTitle = "打开并应用皮肤"' "$MENU_SOURCE" ||
-   /usr/bin/grep -F -q 'runInstalledScript(named: "apply-from-menubar-macos.sh", operation: "打开 ChatGPT")' "$MENU_SOURCE" ||
-   /usr/bin/printf '%s\n' "$OPEN_CODEX_BODY" | /usr/bin/grep -F -q 'installBundledEngineIfNeeded(force:'; then
-  printf 'Open ChatGPT must keep its menu title and must not use menu apply or install the engine implicitly.\n' >&2
-  exit 1
-fi
-
 # Corrupt or structurally incomplete state must be preserved and fail closed;
 # otherwise pause/restore could overwrite evidence while a watcher survives.
 for state_payload in '{' '{}'; do
@@ -886,9 +604,7 @@ fi
 
 /bin/mkdir -p "$TMP/theme"
 /bin/cp "$ROOT/assets/portal-hero.png" "$TMP/theme/background.png"
-"$NODE" "$ROOT/scripts/write-theme.mjs" custom --output-dir "$TMP/theme" \
-  --image background.png --name '测试主题' --tagline '测试口号' --quote 'TEST' \
-  --accent '#11aa55' --secondary '#22bbcc' --highlight '#663399' >/dev/null
+/usr/bin/printf '%s\n' '{"schemaVersion":1,"id":"custom-test","name":"测试主题","image":"background.png","appearance":"auto","art":{"safeArea":"auto","taskMode":"auto"}}' > "$TMP/theme/theme.json"
 PAYLOAD_JSON="$("$NODE" "$ROOT/scripts/injector.mjs" --check-payload --theme-dir "$TMP/theme")"
 "$NODE" -e '
   const theme = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
@@ -906,9 +622,7 @@ PAYLOAD_JSON="$("$NODE" "$ROOT/scripts/injector.mjs" --check-payload --theme-dir
 
 /bin/mkdir -p "$TMP/explicit-theme"
 /bin/cp "$ROOT/assets/portal-hero.png" "$TMP/explicit-theme/background.png"
-"$NODE" "$ROOT/scripts/write-theme.mjs" custom --output-dir "$TMP/explicit-theme" \
-  --image background.png --name '显式自适应主题' --appearance dark \
-  --focus-x 0.12 --focus-y 0.88 --safe-area none --task-mode off >/dev/null
+/usr/bin/printf '%s\n' '{"schemaVersion":1,"id":"explicit-test","name":"显式自适应主题","image":"background.png","appearance":"dark","art":{"focusX":0.12,"focusY":0.88,"safeArea":"none","taskMode":"off"}}' > "$TMP/explicit-theme/theme.json"
 EXPLICIT_PAYLOAD_JSON="$(
   "$NODE" "$ROOT/scripts/injector.mjs" --check-payload --theme-dir "$TMP/explicit-theme"
 )"
@@ -921,32 +635,6 @@ EXPLICIT_PAYLOAD_JSON="$(
   if (theme.art?.safeArea !== "none" || theme.art?.taskMode !== "off") process.exit(1);
   if (!payload.pass || payload.themeName !== "显式自适应主题") process.exit(1);
 ' "$TMP/explicit-theme/theme.json" "$EXPLICIT_PAYLOAD_JSON"
-
-assert_write_theme_rejected() {
-  local label="$1"
-  shift
-  if "$NODE" "$ROOT/scripts/write-theme.mjs" custom --output-dir "$TMP/explicit-theme" \
-    --image background.png "$@" >/dev/null 2>&1; then
-    printf 'write-theme unexpectedly accepted invalid %s.\n' "$label" >&2
-    exit 1
-  fi
-}
-assert_write_theme_rejected appearance --appearance sepia
-assert_write_theme_rejected safe-area --safe-area edge
-assert_write_theme_rejected task-mode --task-mode fullscreen
-assert_write_theme_rejected focus-x --focus-x -0.01
-assert_write_theme_rejected focus-y --focus-y 1.01
-assert_write_theme_rejected name-control --name $'unsafe\nname'
-assert_write_theme_rejected tagline-control --tagline $'unsafe\rtagline'
-assert_write_theme_rejected quote-control --quote $'unsafe\033quote'
-CONTROL_IMAGE=$'unsafe\nimage.jpg'
-/bin/cp "$TMP/explicit-theme/background.png" "$TMP/explicit-theme/$CONTROL_IMAGE"
-if "$NODE" "$ROOT/scripts/write-theme.mjs" custom --output-dir "$TMP/explicit-theme" \
-  --image "$CONTROL_IMAGE" >/dev/null 2>&1; then
-  printf 'write-theme unexpectedly accepted a control-character image filename.\n' >&2
-  exit 1
-fi
-/bin/rm -f "$TMP/explicit-theme/$CONTROL_IMAGE"
 
 "$NODE" -e '
   const fs = require("fs");
@@ -1054,32 +742,6 @@ if OVERSIZED_DIMENSION_OUTPUT="$(
 fi
 /usr/bin/printf '%s\n' "$OVERSIZED_DIMENSION_OUTPUT" | /usr/bin/grep -F -q \
   'invalid or exceeds the 16384px / 50MP safety limit'
-
-# reset-demo must reject realpath aliases back into its own project, including
-# case aliases on the default case-insensitive macOS filesystem.
-RESET_FIXTURE="$TMP/Reset-Project"
-/bin/mkdir -p "$RESET_FIXTURE/scripts"
-/bin/cp "$ROOT/scripts/write-theme.mjs" "$RESET_FIXTURE/scripts/write-theme.mjs"
-: > "$RESET_FIXTURE/keep-me"
-/bin/ln -s "$RESET_FIXTURE" "$TMP/reset-project-link"
-if "$NODE" "$RESET_FIXTURE/scripts/write-theme.mjs" reset-demo \
-  --output-dir "$TMP/reset-project-link" >/dev/null 2>&1; then
-  printf 'reset-demo unexpectedly accepted a realpath alias to its project.\n' >&2
-  exit 1
-fi
-[ -f "$RESET_FIXTURE/keep-me" ]
-[ -L "$TMP/reset-project-link" ]
-RESET_CASE_ALIAS="$TMP/reset-project"
-if [ -f "$RESET_CASE_ALIAS/keep-me" ]; then
-  if "$NODE" "$RESET_FIXTURE/scripts/write-theme.mjs" reset-demo \
-    --output-dir "$RESET_CASE_ALIAS" >/dev/null 2>&1; then
-    printf 'reset-demo unexpectedly accepted a case alias to its project.\n' >&2
-    exit 1
-  fi
-  [ -f "$RESET_FIXTURE/keep-me" ]
-fi
-"$NODE" "$ROOT/scripts/write-theme.mjs" reset-demo --output-dir "$TMP/theme" >/dev/null
-[ ! -e "$TMP/theme" ]
 
 CONFIG="$TMP/config.toml"
 BACKUP="$TMP/theme-backup.json"

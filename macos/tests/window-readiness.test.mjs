@@ -19,7 +19,7 @@ const [startSource, commonSource] = await Promise.all([
   fs.readFile(startPath, "utf8"),
   fs.readFile(commonPath, "utf8"),
 ]);
-const injectorSource = await fs.readFile(path.join(macosRoot, "scripts", "injector.mjs"), "utf8");
+const injectorSource = await fs.readFile(path.join(macosRoot, "scripts", "renderer-verification.mjs"), "utf8");
 
 const exactPayload = {
   skinVersion: "test-version",

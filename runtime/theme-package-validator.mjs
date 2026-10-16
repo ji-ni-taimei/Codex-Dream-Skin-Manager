@@ -227,6 +227,13 @@ function sameFileStat(left, right) {
 
 async function readStableFile(root, name, maxBytes) {
   if (path.basename(name) !== name || maxBytes < 1) fail(`Unsafe package file name: ${name}`);
+  // Shared manager supplies already bounded, CRC-checked immutable ZIP bytes.
+  // Both entry paths keep exactly the same manifest and payload rules.
+  if (root instanceof Map) {
+    const bytes = root.get(name);
+    if (!Buffer.isBuffer(bytes) || bytes.length < 1 || bytes.length > maxBytes) fail(`${name} is missing or exceeds its byte limit`);
+    return Buffer.from(bytes);
+  }
   const filePath = path.join(root, name);
   let handle;
   try {
@@ -576,6 +583,17 @@ async function validateSimple(root, names) {
       ["theme.css", cssBytes],
     ]),
   };
+}
+
+export async function validateThemePackageBytes(files, platform, clientVersion) {
+  if (!(files instanceof Map) || files.size < 1 || files.size > 32) fail("Invalid package file collection");
+  const names = [...files.keys()].sort();
+  for (const name of names) {
+    if (typeof name !== "string" || path.basename(name) !== name || /[\\/]/.test(name) || CONTROL_PATTERN.test(name)) fail("Unsafe package file name");
+  }
+  return names.includes("manifest.json")
+    ? validateOfficial(files, names, platform, clientVersion)
+    : validateSimple(files, names);
 }
 
 async function main() {

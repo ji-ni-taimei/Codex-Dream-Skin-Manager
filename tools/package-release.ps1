@@ -29,8 +29,10 @@ $requiredFiles = @(
   'THIRD_PARTY\Codex-Dream-Skin\LICENSE',
   'THIRD_PARTY\Codex-Dream-Skin\NOTICE.md',
   'THIRD_PARTY\Node.js\LICENSE',
-  'windows\scripts\manager-actions.ps1',
-  'windows\scripts\apply-theme-and-recover.ps1',
+  'windows\scripts\platform-theme.ps1',
+  'shared\core\main.mjs',
+  'ui\manager\index.html',
+  'runtime\node\node.exe',
   'windows\presets\catalog.json',
   'windows\runtime\node\node.exe'
 )

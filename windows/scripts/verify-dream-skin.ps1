@@ -1,7 +1,11 @@
 [CmdletBinding()]
 param(
   [int]$Port = 9335,
-  [string]$ScreenshotPath
+  [string]$ScreenshotPath,
+  # The shared transaction calls this in-process so the named mutex remains
+  # reentrant. Legacy CLI callers retain exit-code behavior.
+  [switch]$InProcess,
+  [switch]$ReadOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,7 +14,7 @@ $injector = Join-Path $PSScriptRoot 'injector.mjs'
 . (Join-Path $PSScriptRoot 'common-windows.ps1')
 . (Join-Path $PSScriptRoot 'theme-windows.ps1')
 
-$operationLock = Enter-DreamSkinOperationLock
+$operationLock = if (-not $ReadOnly) { Enter-DreamSkinOperationLock } else { $null }
 $verifyExitCode = 1
 try {
   $StatePath = Join-Path $env:LOCALAPPDATA 'CodexDreamSkin\state.json'
@@ -59,6 +63,10 @@ try {
   & $node.Path @arguments
   $verifyExitCode = $LASTEXITCODE
 } finally {
-  Exit-DreamSkinOperationLock -Mutex $operationLock
+  if ($null -ne $operationLock) { Exit-DreamSkinOperationLock -Mutex $operationLock }
+}
+if ($InProcess) {
+  if ($verifyExitCode -ne 0) { throw 'The exact active renderer could not be verified.' }
+  return
 }
 exit $verifyExitCode

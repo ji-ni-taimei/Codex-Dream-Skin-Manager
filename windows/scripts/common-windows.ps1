@@ -243,76 +243,9 @@ function Get-DreamSkinRuntimeEnginePaths {
     Scripts = $scripts
     Runtime = Join-Path $root 'runtime'
     Version = Join-Path $root 'VERSION'
-    CommunityApply = Join-Path $scripts 'apply-community-theme.ps1'
     Start = Join-Path $scripts 'start-dream-skin.ps1'
     Restore = Join-Path $scripts 'restore-dream-skin.ps1'
-    Tray = Join-Path $scripts 'tray-dream-skin.ps1'
     CheckUpdate = Join-Path $scripts 'check-update.ps1'
-  }
-}
-
-function Test-DreamSkinTrayActive {
-  $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-  $mutex = [System.Threading.Mutex]::new($false, "Local\CodexDreamSkin.$sid.Tray")
-  $acquired = $false
-  try {
-    try { $acquired = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] {
-      $acquired = $true
-    }
-    if ($acquired) {
-      $mutex.ReleaseMutex()
-      $acquired = $false
-      return $false
-    }
-    return $true
-  } finally {
-    if ($acquired) { try { $mutex.ReleaseMutex() } catch {} }
-    $mutex.Dispose()
-  }
-}
-
-function Stop-DreamSkinTrayProcess {
-  param(
-    [string[]]$ScriptPaths = @(),
-    [switch]$RequireStopped
-  )
-  if ($ScriptPaths.Count -eq 0) {
-    $ScriptPaths = @((Get-DreamSkinRuntimeEnginePaths).Tray)
-  }
-  $normalized = @($ScriptPaths | ForEach-Object {
-    try { [System.IO.Path]::GetFullPath($_) } catch { $null }
-  } | Where-Object { $_ })
-  $failures = @()
-  try {
-    $processes = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' OR Name = 'pwsh.exe'" `
-      -ErrorAction Stop
-    foreach ($process in $processes) {
-      if ($process.ProcessId -eq $PID -or -not $process.CommandLine) { continue }
-      $matchesTray = $false
-      foreach ($scriptPath in $normalized) {
-        if ($process.CommandLine.IndexOf($scriptPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
-          $matchesTray = $true
-          break
-        }
-      }
-      if (-not $matchesTray) { continue }
-      try {
-        Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
-        Wait-Process -Id $process.ProcessId -Timeout 5 -ErrorAction SilentlyContinue
-      } catch {
-        $failures += "PID $($process.ProcessId): $($_.Exception.Message)"
-      }
-    }
-  } catch {
-    $failures += $_.Exception.Message
-  }
-  if ($failures.Count -gt 0) {
-    $message = 'Could not close the Dream Skin tray automatically: ' + ($failures -join '; ')
-    if ($RequireStopped) { throw $message }
-    Write-Warning $message
-  }
-  if ($RequireStopped -and (Test-DreamSkinTrayActive)) {
-    throw 'The Dream Skin tray is still active. Exit it and retry the operation.'
   }
 }
 
@@ -380,12 +313,19 @@ function Install-DreamSkinRuntimeEngine {
     'scripts\video-decode-probe.mjs',
     'scripts\validate-video-file.mjs',
     'scripts\injector.mjs',
-    'scripts\install-dream-skin.ps1',
+    'scripts\cdp-transport.mjs',
+    'scripts\injection-engine.mjs',
+    'scripts\watcher-engine.mjs',
+    'scripts\media-cache.mjs',
+    'scripts\theme-payload.mjs',
+    'scripts\renderer-session.mjs',
+    'scripts\renderer-verification.mjs',
+    'scripts\runtime-version.ps1',
     'scripts\localization-windows.ps1',
     'scripts\restore-dream-skin.ps1',
     'scripts\start-dream-skin.ps1',
     'scripts\theme-windows.ps1',
-    'scripts\tray-dream-skin.ps1',
+    'scripts\platform-theme.ps1',
     'scripts\validate-safe-css-file.mjs',
     'scripts\verify-dream-skin.ps1'
   )
@@ -652,7 +592,7 @@ try {
   $command = $command.Replace('__PAYLOAD__', $payload)
   $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
   return Invoke-DreamSkinNative -FilePath 'powershell.exe' -ArgumentList @(
-    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded)
+    '-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-EncodedCommand', $encoded)
 }
 
 function ConvertFrom-DreamSkinUtf8Base64 {

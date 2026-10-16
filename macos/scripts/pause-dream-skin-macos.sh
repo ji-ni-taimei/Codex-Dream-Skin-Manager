@@ -5,7 +5,9 @@
 
 set -euo pipefail
 . "$(cd "$(dirname "$0")" && pwd -P)/common-macos.sh"
+. "$SCRIPT_DIR/theme-switch-lock-macos.sh"
 OPERATION_TOKEN=""
+LOCK_TOKEN=""
 
 record_pause_error() {
   local code="$1"
@@ -48,7 +50,7 @@ record_pause_error() {
   fi
   alert_user "$(dreamskin_text pause_failed_alert)"
 }
-trap 'record_pause_error "$?"' EXIT
+trap 'pause_exit=$?; record_pause_error "$pause_exit" || true; release_theme_switch_lock' EXIT
 
 operation_ack_matches() {
   local expected_token="$1"
@@ -85,12 +87,14 @@ PORT_EXPLICIT="false"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --port) PORT="${2:-}"; PORT_EXPLICIT="true"; shift 2 ;;
+    --lock-token) LOCK_TOKEN="${2:-}"; shift 2 ;;
     *) fail "Unknown pause argument: $1" ;;
   esac
 done
 
 OPERATION_TOKEN="$(new_operation_token)"
 ensure_state_root
+if [ -n "$LOCK_TOKEN" ]; then assert_inherited_theme_switch_lock "$LOCK_TOKEN" "$PPID"; else acquire_theme_switch_lock "$OPERATION_TOKEN"; fi
 /bin/rm -f "$OPERATION_ACK_PATH"
 write_operation_state pausing "$(dreamskin_text pausing_skin)" "$OPERATION_TOKEN" \
   || fail "Could not publish the pause operation state."
@@ -190,6 +194,7 @@ fi
   ' "$STATE_PATH" "$PORT" "$THEME_DIR" "$PROJECT_ROOT" "$KEEP_CONTROL_WATCHER"
 write_operation_state paused "$(dreamskin_text skin_paused)" "$OPERATION_TOKEN" \
   || fail "Could not publish the completed pause state."
+release_theme_switch_lock
 trap - EXIT
 
 if [ "$REMOVED" = "true" ]; then

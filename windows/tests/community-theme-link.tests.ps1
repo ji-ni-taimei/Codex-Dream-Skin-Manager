@@ -16,103 +16,6 @@ function Assert-CommunityValueRejected {
   if (-not $rejected) { throw "Community theme contract unexpectedly accepted $Label." }
 }
 
-$validUri = 'dreamskin://apply?version=ver_1234abcd'
-$versionId = Resolve-DreamSkinCommunityApplyUri -Uri $validUri
-if ($versionId -cne 'ver_1234abcd' -or
-  -not (Test-DreamSkinCommunityVersionId -Value $versionId)) {
-  throw 'The canonical community theme link did not resolve its version id.'
-}
-$normalizedUri = 'dreamskin://apply/?version=ver_1234abcd'
-$normalizedVersionId = Resolve-DreamSkinCommunityApplyUri -Uri $normalizedUri
-if ($normalizedVersionId -cne 'ver_1234abcd') {
-  throw 'The browser-normalized community theme link did not resolve its version id.'
-}
-$endpoints = Get-DreamSkinCommunityThemeEndpoints -VersionId $versionId
-if ($endpoints.MetadataUri -cne 'https://api.dreamskin.cc/v1/themes/ver_1234abcd' -or
-  $endpoints.DownloadUri -cne 'https://api.dreamskin.cc/v1/themes/ver_1234abcd/download') {
-  throw 'Community theme endpoints were not built from the fixed API origin.'
-}
-
-foreach ($invalidUri in @(
-  'https://dreamskin.cc/apply?version=ver_1234abcd',
-  'dreamskin://apply?url=https://example.com/theme.zip',
-  'dreamskin://apply?version=ver_short',
-  'dreamskin://apply?version=ver_1234abcd&extra=1',
-  'dreamskin://apply/?version=ver_1234abcd&extra=1',
-  'dreamskin://apply//?version=ver_1234abcd',
-  'dreamskin://apply/path?version=ver_1234abcd',
-  'dreamskin://apply?version=ver_1234abcd#fragment',
-  'dreamskin://user@apply?version=ver_1234abcd',
-  'dreamskin://apply:443?version=ver_1234abcd',
-  'DREAMSKIN://apply?version=ver_1234abcd',
-  'dreamskin://apply?version=ver_1234ABCD',
-  'dreamskin://apply?version=ver_1234abcd%26url%3Dhttps%3A%2F%2Fevil.example'
-)) {
-  Assert-CommunityValueRejected -Label $invalidUri -Action {
-    Resolve-DreamSkinCommunityApplyUri -Uri $invalidUri
-  }
-}
-
-$validJson = @'
-{"id":"ver_1234abcd","applyCompatible":true,"themeId":"theme-one","name":"Paper","version":"1.2.3","authorDisplayName":"Author","license":"MIT","packageSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","packageBytes":2048}
-'@
-$metadata = ConvertFrom-DreamSkinCommunityThemeMetadata -Json $validJson `
-  -ExpectedVersionId 'ver_1234abcd'
-if ($metadata.Id -cne 'ver_1234abcd' -or -not $metadata.ApplyCompatible -or
-  $metadata.ThemeId -cne 'theme-one' -or
-  $metadata.Name -cne 'Paper' -or $metadata.Version -cne '1.2.3' -or
-  $metadata.AuthorDisplayName -cne 'Author' -or $metadata.License -cne 'MIT' -or
-  $metadata.PackageSha256 -cne ('a' * 64) -or $metadata.PackageBytes -ne 2048) {
-  throw 'Valid community theme metadata did not retain its reviewed fields.'
-}
-$emoji = [char]::ConvertFromUtf32(0x1F642)
-$bidiOverride = [char]0x202E
-$bidiIsolate = [char]0x2066
-$lineSeparator = [char]0x2028
-$paragraphSeparator = [char]0x2029
-$zeroWidthJoiner = [char]0x200D
-$maximumUnicodeJson = $validJson.Replace('"name":"Paper"', '"name":"' + ($emoji * 120) + '"')
-$maximumUnicode = ConvertFrom-DreamSkinCommunityThemeMetadata -Json $maximumUnicodeJson `
-  -ExpectedVersionId 'ver_1234abcd'
-if ((Get-DreamSkinUnicodeScalarCount -Value $maximumUnicode.Name) -ne 120) {
-  throw 'Community display metadata did not count Unicode scalar values consistently.'
-}
-
-$invalidMetadata = @(
-  @{ Label = 'mismatched id'; Json = $validJson.Replace('ver_1234abcd', 'ver_deadbeef') },
-  @{ Label = 'case-ambiguous id key'; Json = $validJson.Replace('"id"', '"ID"') },
-  @{ Label = 'not apply-compatible'; Json = $validJson.Replace('"applyCompatible":true', '"applyCompatible":false') },
-  @{ Label = 'string apply compatibility'; Json = $validJson.Replace('"applyCompatible":true', '"applyCompatible":"true"') },
-  @{ Label = 'missing apply compatibility'; Json = $validJson.Replace(',"applyCompatible":true', '') },
-  @{ Label = 'uppercase hash'; Json = $validJson.Replace(('a' * 64), ('A' * 64)) },
-  @{ Label = 'zero bytes'; Json = $validJson.Replace('"packageBytes":2048', '"packageBytes":0') },
-  @{ Label = 'oversized bytes'; Json = $validJson.Replace('"packageBytes":2048', '"packageBytes":167772161') },
-  @{ Label = 'string bytes'; Json = $validJson.Replace('"packageBytes":2048', '"packageBytes":"2048"') },
-  @{ Label = 'fractional bytes'; Json = $validJson.Replace('"packageBytes":2048', '"packageBytes":2048.5') },
-  @{ Label = 'unsafe display whitespace'; Json = $validJson.Replace('"name":"Paper"', '"name":" Paper"') },
-  @{ Label = 'unsafe display control'; Json = $validJson.Replace('"name":"Paper"', '"name":"Paper\u000aInjected"') },
-  @{ Label = 'unsafe bidi override'; Json = $validJson.Replace('Paper', "Pa${bidiOverride}per") },
-  @{ Label = 'unsafe bidi isolate'; Json = $validJson.Replace('Paper', "Pa${bidiIsolate}per") },
-  @{ Label = 'unsafe line separator'; Json = $validJson.Replace('Paper', "Pa${lineSeparator}per") },
-  @{ Label = 'unsafe paragraph separator'; Json = $validJson.Replace('Paper', "Pa${paragraphSeparator}per") },
-  @{ Label = 'unsafe Unicode format character'; Json = $validJson.Replace('Paper', "Pa${zeroWidthJoiner}per") },
-  @{ Label = 'display over Unicode limit'; Json = $validJson.Replace('"name":"Paper"', '"name":"' + ($emoji * 121) + '"') },
-  @{ Label = 'invalid semantic version'; Json = $validJson.Replace('"version":"1.2.3"', '"version":"1.2.3-beta"') },
-  @{ Label = 'oversized semantic version'; Json = $validJson.Replace('"version":"1.2.3"', '"version":"123456789012345678901234567890.1.1"') },
-  @{ Label = 'missing license'; Json = $validJson.Replace(',"license":"MIT"', '') },
-  @{ Label = 'array root'; Json = "[$validJson]" }
-)
-foreach ($case in $invalidMetadata) {
-  Assert-CommunityValueRejected -Label $case.Label -Action {
-    ConvertFrom-DreamSkinCommunityThemeMetadata -Json $case.Json `
-      -ExpectedVersionId 'ver_1234abcd'
-  }
-}
-Assert-CommunityValueRejected -Label 'metadata over 64 KiB' -Action {
-  ConvertFrom-DreamSkinCommunityThemeMetadata -Json ($validJson + (' ' * 65536)) `
-    -ExpectedVersionId 'ver_1234abcd'
-}
-
 function Invoke-CommunityOperationLockProbe {
   param(
     [Parameter(Mandatory = $true)][string]$PowerShellPath,
@@ -204,81 +107,9 @@ $applyAst = [System.Management.Automation.Language.Parser]::ParseFile(
 if ($parseErrors.Count -gt 0) {
   throw "Community theme apply script failed to parse: $($parseErrors[0].Message)"
 }
-$requestHelperAst = $applyAst.Find({
-  param($node)
-  $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-    $node.Name -ceq 'New-DreamSkinCommunityHttpRequest'
-}, $true)
-$successMessageHelperAst = $applyAst.Find({
-  param($node)
-  $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-    $node.Name -ceq 'Format-DreamSkinCommunitySuccessMessage'
-}, $true)
-$communityTextHelperAst = $applyAst.Find({
-  param($node)
-  $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-    $node.Name -ceq 'Get-DreamSkinCommunityText'
-}, $true)
-if ($null -eq $requestHelperAst -or $null -eq $successMessageHelperAst -or
-  $null -eq $communityTextHelperAst) {
-  throw 'The fixed-origin request or localized success-message helper is missing.'
-}
-Invoke-Expression $requestHelperAst.Extent.Text
-Invoke-Expression $communityTextHelperAst.Extent.Text
-Invoke-Expression $successMessageHelperAst.Extent.Text
-$dreamSkinLanguage = 'en-US'
-$successMessage = Format-DreamSkinCommunitySuccessMessage -Name 'Paper'
-if (-not $successMessage -or $successMessage -notmatch 'Paper' -or
-  $successMessage -notmatch 'SHA-256' -or $successMessage -notmatch 'Safe CSS' -or
-  $successMessage -notmatch 'Codex') {
-  throw 'The Windows PowerShell 5.1 community success message is empty or malformed.'
-}
-$cleanupWarningMessage = Format-DreamSkinCommunitySuccessMessage -Name 'Paper' `
-  -CleanupWarning 'simulated private path that must not be shown'
-if ($cleanupWarningMessage.Length -le $successMessage.Length -or
-  $cleanupWarningMessage -match 'simulated private path') {
-  throw 'The community success warning is missing or leaks the raw cleanup failure.'
-}
-$dreamSkinLanguage = 'zh-CN'
-$chineseSuccessMessage = Format-DreamSkinCommunitySuccessMessage -Name 'Paper'
-if (-not $chineseSuccessMessage -or $chineseSuccessMessage -notmatch 'Paper' -or
-  $chineseSuccessMessage -notmatch 'SHA-256' -or $chineseSuccessMessage -notmatch 'Safe CSS' -or
-  $chineseSuccessMessage -notmatch 'Codex' -or $chineseSuccessMessage -ceq $successMessage) {
-  throw 'The localized community success message is empty, malformed, or not language-specific.'
-}
-$request = New-DreamSkinCommunityHttpRequest `
-  -RequestUri 'https://api.dreamskin.cc/v1/themes/ver_1234abcd' -Accept 'application/json'
-if ($request.AllowAutoRedirect -or
-  $request.RequestUri.AbsoluteUri -cne 'https://api.dreamskin.cc/v1/themes/ver_1234abcd' -or
-  $request.Accept -cne 'application/json' -or
-  $request.Headers['Accept-Encoding'] -cne 'identity' -or $request.KeepAlive -or
-  $request.CachePolicy.Level -ne [System.Net.Cache.RequestCacheLevel]::NoCacheNoStore) {
-  throw 'The community metadata request is not fixed-origin, identity-encoded, or redirect-disabled.'
-}
-Assert-CommunityValueRejected -Label 'arbitrary request origin' -Action {
-  New-DreamSkinCommunityHttpRequest `
-    -RequestUri 'https://example.com/v1/themes/ver_1234abcd' -Accept 'application/json'
-}
-Assert-CommunityValueRejected -Label 'fixed origin with query injection' -Action {
-  New-DreamSkinCommunityHttpRequest `
-    -RequestUri 'https://api.dreamskin.cc/v1/themes/ver_1234abcd?url=https://example.com' `
-    -Accept 'application/json'
-}
 $applySource = [System.IO.File]::ReadAllText($applyPath)
 foreach ($requiredSafety in @(
-  'https://api\.dreamskin\.cc/v1/themes/ver_',
-  '$request.AllowAutoRedirect = $false',
-  "'Accept-Encoding'] = 'identity'",
-  '[System.Windows.Forms.MessageBoxDefaultButton]::Button2',
-  'Local\CodexDreamSkin.$sid.CommunityApply',
-  "('.community-apply-' + [guid]::NewGuid().ToString('N'))",
-  '$written -gt $Metadata.PackageBytes',
-  'Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256',
-  'Import-DreamSkinThemeZip -ArchivePath $archivePath',
-  '-ExpectedArchiveBytes $metadata.PackageBytes',
-  '-ExpectedArchiveSha256 $metadata.PackageSha256',
   'Copy-DreamSkinImportedThemeSnapshot',
-  'Ensure-DreamSkinCommunityActiveBaseline',
   'Assert-DreamSkinCommunityActiveBaseline',
   'Set-DreamSkinActiveThemeFromSnapshot',
   'Get-DreamSkinThemeRuntimeContentFingerprint',
@@ -290,14 +121,10 @@ foreach ($requiredSafety in @(
   "['DreamSkinStartStateUnconfirmed']",
   "Get-DreamSkinCommunityText -Key 'CommunityStartTimedOut'",
   'Remove-Item -LiteralPath $resultPath',
-  'Move-DreamSkinCommunityRollbackSnapshot',
   "['DreamSkinRecovery']",
   "Join-Path `$PSScriptRoot 'start-dream-skin.ps1'",
   "' -RestartExisting'",
-  'Restore-DreamSkinActiveThemeSnapshot',
-  'Format-DreamSkinCommunitySuccessMessage -Name $result.Name',
-  '-CleanupWarning $result.CleanupWarning',
-  'Remove-Item -LiteralPath $workRoot -Recurse -Force'
+  'Restore-DreamSkinActiveThemeSnapshot'
 )) {
   if (-not $applySource.Contains($requiredSafety)) {
     throw "Community theme apply script is missing a safety boundary: $requiredSafety"
@@ -323,11 +150,6 @@ $transactionAst = $applyAst.Find({
   $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
     $node.Name -ceq 'Invoke-DreamSkinCommunityThemeTransaction'
 }, $true)
-$applyHelperAst = $applyAst.Find({
-  param($node)
-  $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-    $node.Name -ceq 'Invoke-DreamSkinCommunityApply'
-}, $true)
 $exceptionHelperAst = $applyAst.Find({
   param($node)
   $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -338,20 +160,10 @@ $baselineHelperAst = $applyAst.Find({
   $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
     $node.Name -ceq 'Assert-DreamSkinCommunityActiveBaseline'
 }, $true)
-$baselineStartHelperAst = $applyAst.Find({
-  param($node)
-  $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-    $node.Name -ceq 'Ensure-DreamSkinCommunityActiveBaseline'
-}, $true)
 $activeStateHelperAst = $applyAst.Find({
   param($node)
   $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
     $node.Name -ceq 'Get-DreamSkinCommunityActiveState'
-}, $true)
-$moveRollbackHelperAst = $applyAst.Find({
-  param($node)
-  $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-    $node.Name -ceq 'Move-DreamSkinCommunityRollbackSnapshot'
 }, $true)
 $startFailureMessageHelperAst = $applyAst.Find({
   param($node)
@@ -368,50 +180,13 @@ $startAndVerifyHelperAst = $applyAst.Find({
   $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
     $node.Name -ceq 'Invoke-DreamSkinCommunityStartAndVerify'
 }, $true)
-if ($null -eq $transactionAst -or $null -eq $applyHelperAst -or
+if ($null -eq $transactionAst -or
   $null -eq $exceptionHelperAst -or
-  $null -eq $baselineHelperAst -or $null -eq $baselineStartHelperAst -or
+  $null -eq $baselineHelperAst -or
   $null -eq $activeStateHelperAst -or
-  $null -eq $moveRollbackHelperAst -or $null -eq $startFailureMessageHelperAst -or
+  $null -eq $startFailureMessageHelperAst -or
   $null -eq $startStateExceptionHelperAst -or $null -eq $startAndVerifyHelperAst) {
   throw 'A testable community apply transaction, baseline, state, or recovery helper is missing.'
-}
-$applyHelperSource = $applyHelperAst.Extent.Text
-$applyMetadataIndex = $applyHelperSource.IndexOf(
-  '$metadataResponse = Get-DreamSkinCommunityHttpResponse', [System.StringComparison]::Ordinal
-)
-$applyConfirmIndex = $applyHelperSource.IndexOf(
-  'Confirm-DreamSkinCommunityApply', [System.StringComparison]::Ordinal
-)
-$applyCanceledReturnIndex = $applyHelperSource.IndexOf(
-  'Canceled = $true', [System.StringComparison]::Ordinal
-)
-$applyBaselineIndex = $applyHelperSource.IndexOf(
-  'Ensure-DreamSkinCommunityActiveBaseline', [System.StringComparison]::Ordinal
-)
-$applyWorkRootIndex = $applyHelperSource.IndexOf(
-  "('.community-apply-' + [guid]::NewGuid().ToString('N'))",
-  [System.StringComparison]::Ordinal
-)
-$applyDownloadIndex = $applyHelperSource.IndexOf(
-  '$downloadResponse = Get-DreamSkinCommunityHttpResponse',
-  [System.StringComparison]::Ordinal
-)
-$applyImportIndex = $applyHelperSource.IndexOf(
-  'Import-DreamSkinThemeZip', [System.StringComparison]::Ordinal
-)
-$applyTransactionIndex = $applyHelperSource.IndexOf(
-  'Invoke-DreamSkinCommunityThemeTransaction', [System.StringComparison]::Ordinal
-)
-if ($applyMetadataIndex -lt 0 -or $applyConfirmIndex -le $applyMetadataIndex -or
-  $applyCanceledReturnIndex -le $applyConfirmIndex -or
-  $applyBaselineIndex -le $applyCanceledReturnIndex -or
-  $applyWorkRootIndex -le $applyBaselineIndex -or
-  $applyDownloadIndex -le $applyWorkRootIndex -or
-  $applyImportIndex -le $applyDownloadIndex -or
-  $applyTransactionIndex -le $applyImportIndex) {
-  throw ('Community apply must confirm before establishing the old-theme baseline, and the ' +
-    'baseline must succeed before work-root creation, download, import, or active writes.')
 }
 $transactionSource = $transactionAst.Extent.Text
 $transactionLockIndex = $transactionSource.IndexOf(
@@ -536,9 +311,7 @@ if ($transactionSource.Contains('Set-DreamSkinPaused -Paused $false')) {
 
 Invoke-Expression $exceptionHelperAst.Extent.Text
 Invoke-Expression $baselineHelperAst.Extent.Text
-Invoke-Expression $baselineStartHelperAst.Extent.Text
 Invoke-Expression $activeStateHelperAst.Extent.Text
-Invoke-Expression $moveRollbackHelperAst.Extent.Text
 Invoke-Expression $transactionAst.Extent.Text
 
 $script:communityExpectedFingerprint = '1' * 64
@@ -796,36 +569,6 @@ foreach ($baselineCase in @(
     -Label "Click-time baseline $($baselineCase.Mode) lock"
 }
 
-Reset-CommunityTransactionFixture -Mode 'baseline-off'
-$coldBaseline = Ensure-DreamSkinCommunityActiveBaseline -Paths $mockPaths `
-  -StateRoot 'state'
-$coldStartSuccess = Invoke-DreamSkinCommunityThemeTransaction -Imported $mockImported `
-  -Paths $mockPaths -WorkRoot 'work' -StateRoot 'state'
-if ($coldBaseline.ContentFingerprint -cne $script:communityRollbackFingerprint -or
-  $coldStartSuccess.ContentFingerprint -cne $script:communityExpectedFingerprint -or
-  $script:communityStartCalls -ne 2 -or $script:communityBaselineVerifyCalls -ne 2 -or
-  $script:communitySnapshotCalls -ne 1 -or $script:communityWriteCalls -ne 1 -or
-  $script:communityRestoreCalls -ne 0 -or $script:communityLockDepth -ne 0 -or
-  $script:communityMaxLockDepth -ne 1) {
-  throw 'A missing live session did not establish and verify the old-theme baseline before applying.'
-}
-Assert-CommunityIntSequence -Actual $script:communityStartTimeouts `
-  -Expected @(180000, 180000) -Label 'Cold-session baseline and candidate starts'
-Assert-CommunityIntSequence -Actual $script:communityLockTimeouts `
-  -Expected @(0, 180000, 0, 180000) -Label 'Cold-session baseline locks'
-
-foreach ($coldFailureMode in @('baseline-bootstrap-failure', 'baseline-bootstrap-no-session')) {
-  Reset-CommunityTransactionFixture -Mode $coldFailureMode
-  Assert-CommunityValueRejected -Label $coldFailureMode -Action {
-    Ensure-DreamSkinCommunityActiveBaseline -Paths $mockPaths -StateRoot 'state'
-  }
-  if ($script:communityStartCalls -ne 1 -or $script:communitySnapshotCalls -ne 0 -or
-    $script:communityWriteCalls -ne 0 -or $script:communityRestoreCalls -ne 0 -or
-    $script:communityPauseWriteCalls -ne 0 -or $script:communityLockDepth -ne 0) {
-    throw "Cold-session failure $coldFailureMode changed active state or retried without a baseline."
-  }
-}
-
 Reset-CommunityTransactionFixture -Mode 'baseline-snapshot-changed'
 Assert-CommunityValueRejected -Label 'an active theme changed while its rollback snapshot was copied' -Action {
   Invoke-DreamSkinCommunityThemeTransaction -Imported $mockImported `
@@ -1027,45 +770,4 @@ Assert-CommunityIntSequence -Actual $script:communityStartTimeouts -Expected @(1
 Assert-CommunityIntSequence -Actual $script:communityLockTimeouts -Expected @(0, 180000) `
   -Label 'Recovery lock-timeout lock'
 
-if ($isWindowsHost) {
-  $retentionRoot = Join-Path ([System.IO.Path]::GetTempPath()) `
-    ('dreamskin-community-retention-' + [guid]::NewGuid().ToString('N'))
-  New-Item -ItemType Directory -Path $retentionRoot -Force | Out-Null
-  try {
-    $retentionPaths = [pscustomobject]@{ Root = $retentionRoot }
-    $retainedPaths = @()
-    foreach ($index in 1..2) {
-      Reset-CommunityTransactionFixture -Mode 'success'
-      $retentionWork = Join-Path $retentionRoot ('.community-apply-test-' + $index)
-      $retentionSnapshot = Join-Path $retentionWork 'active-before'
-      New-Item -ItemType Directory -Path $retentionSnapshot -Force | Out-Null
-      $retainedPaths += Move-DreamSkinCommunityRollbackSnapshot `
-        -WorkRoot $retentionWork -Paths $retentionPaths `
-        -ExpectedContentFingerprint $script:communityRollbackFingerprint
-    }
-    $missingRetained = @($retainedPaths | Where-Object {
-        -not (Test-Path -LiteralPath $_ -PathType Container)
-      })
-    if ($retainedPaths.Count -ne 2 -or $retainedPaths[0] -ceq $retainedPaths[1] -or
-      $missingRetained.Count -ne 0) {
-      throw 'Rollback snapshots were not atomically retained under unique managed paths.'
-    }
-
-    Reset-CommunityTransactionFixture -Mode 'rollback-snapshot-mismatch'
-    $mismatchWork = Join-Path $retentionRoot '.community-apply-mismatch'
-    $mismatchSnapshot = Join-Path $mismatchWork 'active-before'
-    New-Item -ItemType Directory -Path $mismatchSnapshot -Force | Out-Null
-    Assert-CommunityValueRejected -Label 'a changed rollback snapshot' -Action {
-      Move-DreamSkinCommunityRollbackSnapshot -WorkRoot $mismatchWork `
-        -Paths $retentionPaths `
-        -ExpectedContentFingerprint $script:communityRollbackFingerprint
-    }
-    if (-not (Test-Path -LiteralPath $mismatchSnapshot -PathType Container)) {
-      throw 'A changed rollback snapshot was removed instead of being preserved in place.'
-    }
-  } finally {
-    Remove-Item -LiteralPath $retentionRoot -Recurse -Force -ErrorAction SilentlyContinue
-  }
-}
-
-Write-Host 'PASS: Windows community links, metadata, identity, serialized apply, and verified rollback are fail-closed.'
+Write-Host 'PASS: Windows community publication, serialized apply, child-start results, and verified rollback are fail-closed.'

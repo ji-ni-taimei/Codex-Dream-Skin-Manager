@@ -10,6 +10,8 @@ THEME_ID=""
 EXPECTED_CONTENT_FINGERPRINT=""
 EXPECTED_ACTIVE_THEME_ID=""
 TRANSACTION_ROOT=""
+MANAGER_REQUEST=""
+MANAGER_APPLICATION_ROOT=""
 
 finish_transaction() {
   release_theme_switch_lock
@@ -22,6 +24,8 @@ while [ "$#" -gt 0 ]; do
     --expect-fingerprint) EXPECTED_CONTENT_FINGERPRINT="${2:-}"; shift 2 ;;
     --expect-active-id) EXPECTED_ACTIVE_THEME_ID="${2:-}"; shift 2 ;;
     --transaction-root) TRANSACTION_ROOT="${2:-}"; shift 2 ;;
+    --manager-request) MANAGER_REQUEST="${2:-}"; shift 2 ;;
+    --manager-application-root) MANAGER_APPLICATION_ROOT="${2:-}"; shift 2 ;;
     *) fail "Unknown community apply argument: $1" ;;
   esac
 done
@@ -79,6 +83,18 @@ process.stdout.write(String(status.port));
 ' "$STATUS_RESULT" "$STATE_PATH" "$EXPECTED_ACTIVE_THEME_ID")" \
   || fail "The visible skin changed or is no longer verified; community apply was cancelled before changing it."
 ROLLBACK_SNAPSHOT="$TRANSACTION_ROOT/active-before"
+APPLY_ARGUMENTS=(--id "$THEME_ID" --expect-fingerprint "$EXPECTED_CONTENT_FINGERPRINT")
+if [ -n "$MANAGER_REQUEST" ] || [ -n "$MANAGER_APPLICATION_ROOT" ]; then
+  [ -n "$MANAGER_REQUEST" ] && [ -n "$MANAGER_APPLICATION_ROOT" ] || fail "Incomplete manager community descriptor."
+  manager_node="$MANAGER_APPLICATION_ROOT/runtime/node/node"
+  manager_probe="$(/bin/bash "$SCRIPT_DIR/manager-platform.sh" probe "$MANAGER_APPLICATION_ROOT")" || fail "Manager session is unavailable."
+  manager_guard="$("$manager_node" "$MANAGER_APPLICATION_ROOT/shared/core/community-worker.mjs" "$MANAGER_APPLICATION_ROOT" "$MANAGER_REQUEST" "$manager_probe")" || fail "Manager rollback baseline changed."
+  manager_transaction="$("$manager_node" -e 'process.stdout.write(JSON.parse(process.argv[1]).recoveryTransaction)' "$manager_guard")"
+  [ "$TRANSACTION_ROOT" = "$STATE_ROOT/$manager_transaction" ] || fail "Manager transaction identity mismatch."
+  manager_snapshot="$("$manager_node" "$MANAGER_APPLICATION_ROOT/shared/core/apply-worker.mjs" prepare "$MANAGER_APPLICATION_ROOT" "$MANAGER_REQUEST")" || fail "Manager candidate snapshot is unavailable."
+  manager_directory="$("$manager_node" -e 'process.stdout.write(JSON.parse(process.argv[1]).directory)' "$manager_snapshot")"
+  APPLY_ARGUMENTS=(--manager-snapshot-dir "$manager_directory" --no-auto-restart)
+fi
 
 /usr/bin/printf '%s\n' 'Saving the exact active theme for rollback...' >&2
 SNAPSHOT_RESULT="$(
@@ -100,9 +116,14 @@ process.stdout.write(value.contentFingerprint);
   || fail "The rollback snapshot does not exactly match the current visible renderer; community apply was cancelled before switching themes."
 
 /usr/bin/printf '%s\n' 'Applying the imported community theme...' >&2
+ROLLBACK_ARGUMENTS=(--snapshot-dir "$ROLLBACK_SNAPSHOT" --expect-fingerprint "$ROLLBACK_FINGERPRINT")
+if [ -n "$MANAGER_REQUEST" ]; then
+  manager_probe="$(/bin/bash "$SCRIPT_DIR/manager-platform.sh" probe "$MANAGER_APPLICATION_ROOT")" || fail "Manager session changed before publication."
+  "$manager_node" "$MANAGER_APPLICATION_ROOT/shared/core/community-worker.mjs" "$MANAGER_APPLICATION_ROOT" "$MANAGER_REQUEST" "$manager_probe" >/dev/null || fail "Manager baseline changed before publication."
+  ROLLBACK_ARGUMENTS+=(--no-auto-restart)
+fi
 if "$SCRIPT_DIR/switch-theme-macos.sh" \
-  --id "$THEME_ID" \
-  --expect-fingerprint "$EXPECTED_CONTENT_FINGERPRINT" \
+  "${APPLY_ARGUMENTS[@]}" \
   --lock-token "$LOCK_TOKEN"; then
   /usr/bin/printf '%s\n' 'Community theme applied and visibly verified.' >&2
   exit 0
@@ -113,8 +134,7 @@ fi
 /usr/bin/printf 'Community theme apply failed with exit %s; restoring the exact active snapshot...\n' \
   "$apply_code" >&2
 if "$SCRIPT_DIR/switch-theme-macos.sh" \
-  --snapshot-dir "$ROLLBACK_SNAPSHOT" \
-  --expect-fingerprint "$ROLLBACK_FINGERPRINT" \
+  "${ROLLBACK_ARGUMENTS[@]}" \
   --lock-token "$LOCK_TOKEN"; then
   /usr/bin/printf '%s\n' 'The previous active theme was reapplied and visibly verified.' >&2
   exit 20

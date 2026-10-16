@@ -28,7 +28,8 @@ $rawSource = $rawSource.Replace(
   '''mock-skill-root'''
 )
 # Isolate the selected-theme child and optional animation references too.
-$rawSource = $rawSource.Replace('Join-Path $PSScriptRoot ''manager-actions.ps1''', "'mock-manager.ps1'")
+$rawSource = $rawSource.Replace('Join-Path $PSScriptRoot ''platform-theme.ps1''', "'mock-manager.ps1'")
+$rawSource = $rawSource.Replace('Join-Path $PSScriptRoot ''manager-platform.ps1''', "'mock-manager-platform.ps1'")
 $rawSource = $rawSource.Replace('Join-Path $PSScriptRoot ''play-startup-animation.mjs''', "'mock-animation.mjs'")
 if ($rawSource.Contains('$PSScriptRoot')) {
   throw 'Preserved-skin fixture left a real script-root dependency in the isolated source.'

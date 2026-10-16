@@ -41,12 +41,7 @@ Mac 发行包保留与 Windows 版相同的两款原有 MP4 动态皮肤，新�
 - 背景是用户提供的 AI 生成示例，不代表 OpenAI/Codex 官方视觉或背书；公开分发前仍需确认人物、模型输出与素材使用权。
 - 该维护者提供的精选预设是单独记录的发行例外，不纳入 MIT 软件许可；文件清单和限制见 [`../NOTICE.md`](../NOTICE.md)。这不表示以后可以提交其他可识别真人素材。
 
-安装后可直接切换：
-
-```bash
-~/.codex/codex-dream-skin-studio/scripts/switch-theme-macos.sh \
-  --id preset-arina-hashimoto
-```
+安装后从管理器主题库选择对应预设，再点击应用。
 
 ## 一套预设的结构
 
@@ -133,7 +128,7 @@ node macos/scripts/injector.mjs --check-payload --theme-dir macos/presets/preset
 cd macos && npm test
 ```
 
-`theme.json` 字段含义见 `../assets/theme.json` 与 `scripts/write-theme.mjs`；`colors` 十个键请与背景图协调（`accent` / `secondary` / `highlight` 会体现在原生控件的强调色上）。
+`theme.json` 字段含义见 `../assets/theme.json` 与共享 `core/theme-model.mts`、`runtime/theme-payload.mjs`；`colors` 十个键请与背景图协调（`accent` / `secondary` / `highlight` 会体现在原生控件的强调色上）。
 
 脚本自检通过后，请在实机至少过一遍以下路由（PR 里附截图）：
 

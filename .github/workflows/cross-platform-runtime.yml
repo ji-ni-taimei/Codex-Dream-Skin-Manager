@@ -40,7 +40,7 @@ jobs:
           CODEX_DREAM_SKIN_SKIP_DOCTOR: "1"
         run: NODE="$(command -v node)" npm test
       - name: Validate manager adapter shell
-        run: bash -n macos/scripts/manager-actions-macos.sh macos/scripts/status-dream-skin-macos.sh macos/scripts/load-image-theme-macos.sh
+        run: bash -n macos/scripts/manager-platform.sh macos/scripts/status-dream-skin-macos.sh macos/scripts/manager-library.sh
 
   windows-runtime:
     runs-on: windows-latest

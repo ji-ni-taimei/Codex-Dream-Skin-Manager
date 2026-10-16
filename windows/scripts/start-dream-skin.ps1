@@ -13,7 +13,12 @@ param(
   [switch]$ForegroundInjector,
   [ValidateRange(0, 300000)][int]$OperationLockTimeoutMilliseconds = 0,
   [switch]$RequireUnpaused,
-  [ValidatePattern('^[a-f0-9]{32}$')][string]$ResultToken
+  [ValidatePattern('^[a-f0-9]{32}$')][string]$ResultToken,
+  # Shared manager restart consent is checked against the current session.
+  [ValidatePattern('^[a-f0-9]{64}$')][string]$ManagerPrecondition,
+  [string]$ManagerApplicationRoot,
+  [ref]$ManagerVerification,
+  [ref]$ManagerRestarted
 )
 
 $ErrorActionPreference = 'Stop'
@@ -194,13 +199,13 @@ try {
   }
   # The decode-only session has not installed native appearance. Final startup
   # must close it (with restart consent) and configure the newly selected theme.
-  if (-not $ConnectOnly -and $null -ne $previousState -and
+  if (-not $ManagerApplicationRoot -and -not $ConnectOnly -and $null -ne $previousState -and
       $previousState.connectionOnly -is [bool] -and $previousState.connectionOnly) {
     $cdpIdentity = $null
   }
   # A selected-theme startup prepares native appearance before launching.
   # Existing sessions need explicit restart consent; a cold start launches once.
-  if ($applyingSelectedTheme -or $RequireFreshSession) { $cdpIdentity = $null }
+  if (($applyingSelectedTheme -and -not $ManagerApplicationRoot) -or $RequireFreshSession) { $cdpIdentity = $null }
   $debugReady = $null -ne $cdpIdentity
   $codexProcesses = if (Test-DreamSkinPathEqual -Left $codexToStop.Executable -Right $currentCodex.Executable) {
     $currentProcesses
@@ -227,8 +232,16 @@ try {
     if (-not $restartAuthorized) {
       throw 'DREAM_SKIN_RESTART_REQUIRED: Codex is open without a verified Dream Skin CDP endpoint. Close it first or explicitly use -RestartExisting.'
     }
+    if ($ManagerPrecondition) {
+      $currentProbe = & (Join-Path $PSScriptRoot 'manager-platform.ps1') -Action Probe -ApplicationRoot $ManagerApplicationRoot
+      $currentProbe = ($currentProbe -join "`n") | ConvertFrom-Json -ErrorAction Stop
+      if ("$($currentProbe.fingerprint)" -cne $ManagerPrecondition) {
+        throw 'DREAM_SKIN_RESTART_REQUIRED: The confirmed Codex process/session changed before restart.'
+      }
+    }
     Stop-DreamSkinCodex -Codex $codexToStop -AllowForce
     $closedExistingCodex = $true
+    if ($ManagerRestarted) { $ManagerRestarted.Value = $true }
     $codex = $currentCodex
   }
 
@@ -259,7 +272,7 @@ try {
       }
     }
     $startupIdentity = Get-DreamSkinVerifiedCdpIdentity -Port $Port -Codex $codex
-    if ($applyingSelectedTheme -and $null -ne $startupIdentity) {
+    if ($applyingSelectedTheme -and $null -ne $startupIdentity -and -not $ManagerApplicationRoot) {
       throw 'DREAM_SKIN_RESTART_REQUIRED: A Codex session appeared after startup consent was checked. Retry to confirm its restart before applying the selected theme.'
     }
     if ($null -eq $startupIdentity) {
@@ -554,12 +567,22 @@ try {
       Write-DreamSkinState -Path $StatePath -State $connectionState
       $startFailureCategory = 'renderer-verification-failed'
       $applyResult = Invoke-DreamSkinPowerShellScript `
-        -ScriptPath (Join-Path $PSScriptRoot 'manager-actions.ps1') -ArgumentList $ThemeApplyArguments
+        -ScriptPath (Join-Path $PSScriptRoot 'platform-theme.ps1') -ArgumentList $ThemeApplyArguments
       if ($applyResult.ExitCode -ne 0) {
         throw ($applyResult.Output -join [Environment]::NewLine)
       }
       $selectedThemePublished = $true
       $startFailureCategory = 'injector-start-failed'
+    }
+    $engineRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $engineWorker = Join-Path $engineRoot 'shared\core\runtime-worker.mjs'
+    $launchEngineRevision = $null
+    if (Test-Path -LiteralPath $engineWorker -PathType Leaf) {
+      try {
+        $engineText = & $node.Path $engineWorker engine-revision $engineRoot
+        if ($LASTEXITCODE -ne 0) { throw 'Engine revision unavailable.' }
+        $launchEngineRevision = (($engineText -join "`n") | ConvertFrom-Json).engineRevision
+      } catch { Write-Warning 'The engine version is unknown; skin startup will continue.' }
     }
     $injectorArgs = @((ConvertTo-DreamSkinProcessArgument -Value $Injector), '--watch', '--port', "$Port",
       '--browser-id', $cdpIdentity.BrowserId, '--theme-dir',
@@ -605,20 +628,25 @@ try {
     # shell markers are not rendered yet when the daemon has barely started,
     # and a single early miss used to tear the whole startup down.  The
     # watcher keeps applying in the background, so retry until a deadline.
-    $verifyDeadline = (Get-Date).AddSeconds(90)
+    $verifyDeadline = (Get-Date).AddSeconds($(if ($ManagerApplicationRoot) { 12 } else { 90 }))
     $forceInjectedAfterVerifyFailure = $false
     while ($true) {
       # Share the startup verification deadline across retries and the fallback
       # injection. The injector reserves up to one second for socket cleanup.
       $remainingVerifyMs = [int]($verifyDeadline - (Get-Date)).TotalMilliseconds - 1000
       if ($remainingVerifyMs -lt 250) { throw "Dream Skin verification failed. See $VerifyPath" }
-      $verifyTimeoutMs = [Math]::Min(30000, $remainingVerifyMs)
+      $verifyTimeoutMs = [Math]::Min($(if ($ManagerApplicationRoot) { 8000 } else { 30000 }), $remainingVerifyMs)
+      $verifyMode = if ($ManagerApplicationRoot) { '--apply-live' } else { '--verify' }
       $verify = Invoke-DreamSkinNative -FilePath $node.Path -ArgumentList @(
-        $Injector, '--verify', '--port', "$Port",
+        $Injector, $verifyMode, '--port', "$Port",
         '--browser-id', $cdpIdentity.BrowserId, '--theme-dir', $themePaths.Active,
-        '--timeout-ms', "$verifyTimeoutMs")
+        '--timeout-ms', "$verifyTimeoutMs") -DiscardStderr:([bool]$ManagerApplicationRoot)
       Write-DreamSkinUtf8FileAtomically -Path $VerifyPath -Content (($verify.Output -join "`r`n") + "`r`n")
-      if ($verify.ExitCode -eq 0) { break }
+      if ($verify.ExitCode -eq 0) {
+        if ($ManagerVerification) { $ManagerVerification.Value = ($verify.Output -join "`n") }
+        break
+      }
+      if ($ManagerApplicationRoot) { throw "Dream Skin live apply failed. See $VerifyPath" }
       # A verify can fail while the theme is demonstrably on screen: the
       # renderer reports the document visible, the viewport sized and the shell
       # structure present, and only the native-window probe -- which some Codex
@@ -651,6 +679,13 @@ try {
       if ($daemon.HasExited) { throw "The injector exited during startup. See $StderrPath" }
       if ((Get-Date) -ge $verifyDeadline) { throw "Dream Skin verification failed. See $VerifyPath" }
       Start-Sleep -Seconds 1
+    }
+    if ($launchEngineRevision) {
+      try {
+        if ($daemon.HasExited) { throw 'The injector exited before version recording.' }
+        $null = & $node.Path $engineWorker record-start $engineRoot $launchEngineRevision
+        if ($LASTEXITCODE -ne 0) { throw 'Engine version recording failed.' }
+      } catch { Write-Warning 'The skin was verified, but its engine version could not be recorded.' }
     }
     if ($null -ne $appearanceTransaction) {
       Complete-DreamSkinAppearanceTransaction `
@@ -788,7 +823,7 @@ try {
   # Play only after this invocation actually launched Codex and committed a
   # verified skin. Reconnecting a watcher or switching themes stays immediate.
   # Animation is optional presentation; failure must never roll back the skin.
-  if ($launchedWithCdp) {
+  if ($launchedWithCdp -and -not $ManagerApplicationRoot) {
     $animationScript = Join-Path $PSScriptRoot 'play-startup-animation.mjs'
     $animationLog = Join-Path $StateRoot 'startup-animation.log'
     if (Test-Path -LiteralPath $animationScript -PathType Leaf) {

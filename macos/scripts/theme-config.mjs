@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 const [mode, configPath, backupPath, appearanceArg] = process.argv.slice(2);
+const restoration = { appearanceRestored: false, backupArchived: false };
 // Backup these keys so Restore can put them back. When the active theme pins an
 // appearance (light|dark), install also pins Codex appearanceTheme to match —
 // native token surfaces (dropdown/popover, #233) follow appearanceTheme, not the
@@ -12,7 +13,7 @@ const settings = new Map([
   ["appearanceDarkCodeThemeId", null],
 ]);
 
-if (!["install", "restore"].includes(mode) || !configPath || !backupPath) {
+if (!["install", "restore", "restore-archive", "check-restore"].includes(mode) || !configPath || !backupPath) {
   throw new Error("Usage: theme-config.mjs <install|restore> <config-path> <backup-path> [appearance]");
 }
 const appearance = appearanceArg || "auto";
@@ -335,19 +336,31 @@ async function main() {
   }
 
   let backup;
+  let restoreBackupBytes;
   try {
     const backupBytes = await fs.readFile(backupPath);
+    restoreBackupBytes = backupBytes;
     backup = JSON.parse(decodeStrictUtf8(backupBytes, "Theme backup"));
   } catch (error) {
     if (error.code === "ENOENT") throw new Error("No selective pre-install theme backup is available.");
     throw new Error(`Could not read the theme backup: ${error.message}`);
   }
   validateBackup(backup);
+  if (mode === "check-restore") {
+    // Parse the exact same selective restore shape without acquiring a writer
+    // lock, writing config or consuming its backup.
+    if (section) for (const key of settings.keys()) replaceSetting(section.body, key, backup.values[key] ?? null);
+    await assertConfigUnchanged(originalBytes, originalStat);
+    if (!(await fs.readFile(backupPath)).equals(restoreBackupBytes)) throw new Error("Theme backup changed during restore preflight.");
+    console.log("Selective restore inputs are readable.");
+    return;
+  }
   if (!section) {
     const hasSavedSetting = [...settings.keys()].some((key) => backup.values[key]);
     if (!hasSavedSetting) {
       await assertConfigUnchanged(originalBytes, originalStat);
-      await fs.unlink(backupPath);
+      if (mode === "restore-archive") restoration.appearanceRestored = true;
+      if (mode === "restore-archive") await archiveRestoredBackup(restoreBackupBytes); else await fs.unlink(backupPath);
       console.log("Restored the saved base-theme keys.");
       return;
     }
@@ -357,15 +370,41 @@ async function main() {
   let body = section.body;
   for (const key of settings.keys()) body = replaceSetting(body, key, backup.values[key] ?? null);
   const restored = content.slice(0, section.bodyStart) + body + content.slice(section.bodyEnd);
+  if (mode === "restore-archive" && !(await fs.readFile(backupPath)).equals(restoreBackupBytes)) throw new Error("Confirmed theme backup changed; restore was refused.");
   await assertConfigUnchanged(originalBytes, originalStat);
+  if (mode === "restore-archive") restoration.appearanceRestored = null;
   await atomicWrite(configPath, restored, originalStat.mode & 0o777, originalBytes, originalStat);
-  await fs.unlink(backupPath);
+  if (!(await fs.readFile(configPath)).equals(Buffer.from(restored, "utf8"))) throw new Error("Selective appearance restore readback changed; backup was preserved.");
+  if (mode === "restore-archive") restoration.appearanceRestored = true;
+  if (mode === "restore-archive") await archiveRestoredBackup(restoreBackupBytes); else await fs.unlink(backupPath);
   console.log("Restored the saved base-theme keys.");
 }
 
-const releaseLock = await acquireConfigLock();
+async function archiveRestoredBackup(expectedBytes) {
+  const info = await fs.lstat(backupPath);
+  if (!info.isFile() || info.isSymbolicLink()) throw new Error("Unsafe theme backup; archive was refused.");
+  // Preserve the exact validated backup; never overwrite an earlier archive.
+  const saved = await fs.readFile(backupPath);
+  if (!saved.equals(expectedBytes)) throw new Error("Validated theme backup changed; archive was refused.");
+  validateBackup(JSON.parse(decodeStrictUtf8(saved, "Theme backup")));
+  const archive = `${backupPath}.restored-${randomUUID()}.json`;
+  restoration.backupArchived = null;
+  const handle = await fs.open(archive, "wx", 0o600);
+  try { await handle.writeFile(saved); await handle.sync(); } finally { await handle.close(); }
+  const current = await fs.lstat(backupPath);
+  if (current.dev !== info.dev || current.ino !== info.ino || !(await fs.readFile(backupPath)).equals(saved) || !(await fs.readFile(archive)).equals(saved)) throw new Error("Theme backup changed while archiving; preserved for inspection.");
+  await fs.unlink(backupPath);
+  restoration.backupArchived = true;
+}
+
+const releaseLock = mode === "check-restore" ? async () => {} : await acquireConfigLock();
 try {
   await main();
+} catch (error) {
+  if (mode !== "restore-archive") throw error;
+  console.error(error instanceof Error ? error.message : "Selective restore could not complete.");
+  process.exitCode = 1;
 } finally {
+  if (mode === "restore-archive") console.log(JSON.stringify({ effects: restoration }));
   await releaseLock();
 }

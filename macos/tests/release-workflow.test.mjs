@@ -23,8 +23,7 @@ const windowsReadme = await fs.readFile(windowsReadmePath, "utf8");
 const windowsEnglishReadme = await fs.readFile(windowsEnglishReadmePath, "utf8");
 const macosReadme = await fs.readFile(macosReadmePath, "utf8");
 const repoRoot = path.resolve(here, "../..");
-const assemblyInfo = await fs.readFile(path.join(repoRoot, "src/AssemblyInfo.cs"), "utf8");
-const releaseVersion = assemblyInfo.match(/AssemblyInformationalVersion\("([^"]+)"\)/)[1];
+const releaseVersion = (await fs.readFile(path.join(repoRoot, "windows/VERSION"), "utf8")).trim();
 for (const platform of ["windows", "macos"]) {
   const version = (await fs.readFile(path.join(repoRoot, platform, "VERSION"), "utf8")).trim();
   assert.equal(version, releaseVersion, `${platform}/VERSION must match the manager release`);

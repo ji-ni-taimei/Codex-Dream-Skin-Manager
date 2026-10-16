@@ -1,38 +1,36 @@
 ---
 name: codex-dream-skin-studio
-description: Install, customize, launch, verify, repair, update, or restore Codex Dream Skin Studio on macOS. Use when a user wants to turn a personal image into one continuous full-window Codex wallpaper with adaptive readability layers while preserving the native interface, or needs safe CDP theme troubleshooting and rollback.
-compatibility: macOS, official Codex Desktop app, signed bundled Node.js 20 or newer
+description: Manage Codex wallpapers, themes and appearance through the shared Codex Dream Skin desktop manager on macOS.
+compatibility: macOS 13+, official Codex Desktop app, bundled Node.js 22.22.2
 ---
 
-# Codex Dream Skin Studio
+# Codex Dream Skin on macOS
 
-This file is an optional Codex capability entry. The delivery is a complete standalone project; users do not need to install it as a Skill.
+The user entry is `Codex Dream Skin.app`. Its AppKit/WKWebView host runs the same React UI and Node core as Windows. This document describes the project; installing it as an agent skill is optional.
 
 ## Workflow
 
-1. Run `Install Codex Dream Skin.command` from the complete project folder.
-2. Run `Customize Codex Dream Skin.command`, choose an image in Finder, and enter a theme name.
-3. To add a complete downloaded pack, use the native menu's “导入主题 ZIP…”. Accept ordinary `.zip` only. Every new official Studio pack contains `manifest.json`, non-empty `theme.json`, non-empty locally validated `theme.css`, exactly one registered background, and optional license/signature files; the trusted local simplified format contains exactly `theme.json`, `theme.css`, and its referenced image. Import into saved themes without changing the active theme. A manually extracted complete three-file directory may instead be moved into the saved themes folder. Previously saved legacy themes without CSS remain switchable but inject no extra CSS.
-4. Verify the live result with `Verify Codex Dream Skin.command`. A pass requires a visible native sidebar and composer, no horizontal overflow, non-interactive decoration, and—on the home route—a continuous wallpaper with live native heading, project controls, and any suggestion cards exposed by the current Codex version.
-5. Restore the official appearance with `Restore Codex Dream Skin.command`.
+1. Download the App/DMG from the project release, move the app to a writable local location such as Applications, then open it. The package contains its own Node runtime. First launch initializes bundled presets.
+2. Use the shared theme library to preview a preset or import media. Use theme settings to save parameters; saving alone does not apply a skin.
+3. Import `.cdskin` packages or supported Mac ZIP packages through the manager. Core validates the archive, metadata, media and Safe CSS before publication. Original license bytes remain with the theme.
+4. Apply the chosen theme. Confirm a Codex restart only when prompted. Use the displayed runtime and renderer state to assess the result; a material preview alone is not proof of successful injection.
+5. Pause, resume, reset or restore the original appearance through the shared interface. Reconnect after a backend disconnect; do not replay an uncertain write operation under a new ID.
 
-## Guardrails
+## Runtime boundaries
 
-- Never modify the official `.app`, `app.asar`, or its code signature.
-- Use the official Codex app's signed Node.js runtime only after validating its signature, Team ID, architecture, and minimum version.
-- Bind CDP to loopback, verify that the listener belongs to Codex, and reject non-Codex renderer targets.
-- Preserve all native cards, navigation, project selectors, task content, composer controls, and keyboard focus.
-- Theme images must be UI-free wallpapers. Paint one 16:9 image continuously across the window; keep home expressive and task routes quieter. `appearance: auto` follows Codex/native or system appearance rather than image brightness.
-- Theme-pack import does not support `.dreamskin`; reject traversal, links, nested archives, ambiguous roots, size/count abuse, and packs that fail the existing theme/image payload checks.
-- Keep decoration at `pointer-events: none`.
-- Require explicit authorization before restarting an already-running Codex instance.
-- Stop an injector only when its recorded PID, executable, command line, and start time all match.
+- Do not modify the official Codex app, `app.asar` or its signature.
+- Use the package's signed Node runtime, not Codex's internal Node installation.
+- CDP uses loopback and checks the owning Codex process and renderer identity.
+- Preserve native navigation, project controls, tasks, composer and keyboard focus. Decoration stays non-interactive.
+- Wallpaper files must not be screenshots that cover the native interface. `appearance: auto` follows Codex/system appearance.
+- Retain archive traversal, links, size, format, Safe CSS, media decode and update signature checks.
+- Require user confirmation for deletion and necessary Codex restarts. Stop only a watcher whose recorded identity matches.
 
-## Key resources
+## Source ownership
 
-- `README.md`: user installation and customization guide.
-- `scripts/injector.mjs`: CDP connection, injection, removal, verification, and screenshots.
-- `assets/dream-skin.css`: live native interface styling.
-- `assets/renderer-inject.js`: idempotent DOM integration and cleanup.
-- `scripts/doctor-macos.sh`: signed-runtime, payload, and optional live-session self-check.
-- `references/qa-inventory.md`: release and visual acceptance criteria.
+- `ui/manager`, `contracts`, `core`: shared interaction, protocol and business rules.
+- `runtime`: authoritative payload, session, verification, media-cache, CDP and watcher code; platform copies are generated.
+- `hosts/macos`: native window, menus, dialogs and preview decoding.
+- `macos/scripts`: process discovery, engine installation, theme staging/publication, signing and appearance restoration used by platform adapters.
+
+Build with root `npm ci` and `bash macos/scripts/build-app.sh`; `build-dmg.sh` creates the DMG. See [README](README.md), [usage](GUI使用说明.md), [updater](UPDATER.md) and [contributor instructions](../CONTRIBUTING.md). Tests, builds and live/visual acceptance require a separate request under the project rules.

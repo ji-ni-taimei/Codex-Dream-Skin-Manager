@@ -1410,7 +1410,8 @@ function Restore-DreamSkinBaseTheme {
     [string]$ConfigPath,
 
     [Parameter(Mandatory = $true)]
-    [string]$BackupPath
+    [string]$BackupPath,
+    [switch]$VerifyOnly
   )
 
   if (-not (Test-Path -LiteralPath $BackupPath)) { throw 'No pre-install config backup is available.' }
@@ -1419,8 +1420,10 @@ function Restore-DreamSkinBaseTheme {
     Assert-DreamSkinNoReparseComponents -Path (Get-DreamSkinAppearanceMarkerPath -BackupPath $BackupPath)
     Assert-DreamSkinNoReparseComponents -Path (Get-DreamSkinAppearanceTransactionPath -BackupPath $BackupPath)
   }
-  $null = Resolve-DreamSkinPendingAppearanceTransaction `
-    -ConfigPath $ConfigPath -BackupPath $BackupPath
+  if (-not $VerifyOnly) {
+    $null = Resolve-DreamSkinPendingAppearanceTransaction `
+      -ConfigPath $ConfigPath -BackupPath $BackupPath
+  }
   $backupBytes = [System.IO.File]::ReadAllBytes($BackupPath)
   $backupContent = ConvertFrom-DreamSkinUtf8Bytes -Bytes $backupBytes -Path $BackupPath
   $currentBytes = [System.IO.File]::ReadAllBytes($ConfigPath)
@@ -1464,6 +1467,7 @@ function Restore-DreamSkinBaseTheme {
     $currentContent = $currentContent.Substring(0, $currentDesktop.BodyStart) + $body +
       $currentContent.Substring($currentDesktop.BodyStart + $currentDesktop.BodyLength)
   }
+  if ($VerifyOnly) { return [bool]($currentContent -ceq (ConvertFrom-DreamSkinUtf8Bytes -Bytes $currentBytes -Path $ConfigPath)) }
   Write-DreamSkinUtf8FileAtomically -Path $ConfigPath -Content $currentContent -ExpectedBytes $currentBytes
 }
 

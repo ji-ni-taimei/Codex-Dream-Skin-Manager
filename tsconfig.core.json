@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noEmitOnError": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+    "rootDir": ".",
+    "outDir": "build/shared",
+    "types": ["node"],
+    "declaration": true
+  },
+  "include": ["contracts/**/*.mts", "core/**/*.mts", "platforms/**/*.mts"]
+}

@@ -1,0 +1,41 @@
+{
+  "collectedOn": "2026-10-16",
+  "work": "FR-2026101517",
+  "materials": [
+    {
+      "file": "esbuild-0.24.2-LICENSE.md",
+      "source": "https://raw.githubusercontent.com/evanw/esbuild/v0.24.2/LICENSE.md",
+      "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
+      "bytes": 1069,
+      "matchedInstalledFile": "node_modules/esbuild/LICENSE.md",
+      "relatedPackages": [
+        "@esbuild/win32-x64@0.24.2"
+      ],
+      "scope": "Upstream source snapshot; byte-identical to the installed esbuild wrapper license. Native binary contents and a complete binary notice closure were not audited."
+    },
+    {
+      "file": "rollup-4.64.7-LICENSE.md",
+      "source": "https://raw.githubusercontent.com/rollup/rollup/v4.64.7/LICENSE.md",
+      "sha256": "fa1bd040c5bdeefe65b3821cebf474f2733ce65df13089bd151dda1778e62fe8",
+      "bytes": 35231,
+      "matchedInstalledFile": "node_modules/rollup/LICENSE.md",
+      "relatedPackages": [
+        "@rollup/rollup-win32-x64-gnu@4.64.7",
+        "@rollup/rollup-win32-x64-msvc@4.64.7"
+      ],
+      "scope": "Upstream release source snapshot with bundled notices; byte-identical to the installed rollup wrapper license. The platform packages still contain no root LICENSE, and their native binary contents were not audited."
+    },
+    {
+      "file": "dotnet-reference-assemblies-LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/microsoft/dotnet/7cdf34dec038c4da4d14735a34ab259704ec4a1e/LICENSE",
+      "sha256": "d4610d405ef708b4af60529fcbe8e61ece6f8a3b9ed1988b6cd0274abd406f97",
+      "bytes": 1076,
+      "matchedInstalledFile": null,
+      "relatedPackages": [
+        "Microsoft.NETFramework.ReferenceAssemblies@1.0.3",
+        "Microsoft.NETFramework.ReferenceAssemblies.net48@1.0.3"
+      ],
+      "scope": "Pinned snapshot of the upstream licenseUrl destination declared by the restored nuspecs; not a license file embedded in either nupkg. Last LICENSE commit reported by upstream: 2019-10-04T15:02:50Z."
+    }
+  ]
+}

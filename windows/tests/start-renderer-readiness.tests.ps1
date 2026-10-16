@@ -19,7 +19,8 @@ $source = $source.Replace(
   '''mock-skill-root'''
 )
 # Isolate the selected-theme child and optional animation references too.
-$source = $source.Replace('Join-Path $PSScriptRoot ''manager-actions.ps1''', "'mock-manager.ps1'")
+$source = $source.Replace('Join-Path $PSScriptRoot ''platform-theme.ps1''', "'mock-manager.ps1'")
+$source = $source.Replace('Join-Path $PSScriptRoot ''manager-platform.ps1''', "'mock-platform.ps1'")
 $source = $source.Replace('Join-Path $PSScriptRoot ''play-startup-animation.mjs''', "'mock-animation.mjs'")
 if ($source.Contains('$PSScriptRoot')) {
   throw 'Start readiness fixture left a real script-root dependency in the isolated source.'

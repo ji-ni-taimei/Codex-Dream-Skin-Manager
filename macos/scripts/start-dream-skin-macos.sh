@@ -58,6 +58,8 @@ RESTART_EXISTING="false"
 PROMPT_RESTART="false"
 FOREGROUND_INJECTOR="false"
 THEME_STAGED="false"
+MANAGER_PRECONDITION=""
+MANAGER_APPLICATION_ROOT=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --port) PORT="${2:-}"; PORT_EXPLICIT="true"; shift 2 ;;
@@ -65,6 +67,8 @@ while [ "$#" -gt 0 ]; do
     --prompt-restart) PROMPT_RESTART="true"; shift ;;
     --foreground-injector) FOREGROUND_INJECTOR="true"; shift ;;
     --theme-staged) THEME_STAGED="true"; shift ;;
+    --manager-precondition) MANAGER_PRECONDITION="${2:-}"; shift 2 ;;
+    --manager-application-root) MANAGER_APPLICATION_ROOT="${2:-}"; shift 2 ;;
     *) fail "Unknown start argument: $1" ;;
   esac
 done
@@ -79,6 +83,16 @@ if [ "$FOREGROUND_INJECTOR" != "true" ]; then
 fi
 discover_codex_app
 require_signed_node_runtime
+ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+ENGINE_WORKER="$ENGINE_ROOT/shared/core/runtime-worker.mjs"
+LAUNCH_ENGINE_REVISION=""
+if [ -f "$ENGINE_WORKER" ]; then
+  if engine_info="$("$NODE" "$ENGINE_WORKER" engine-revision "$ENGINE_ROOT")"; then
+    LAUNCH_ENGINE_REVISION="$("$NODE" -e 'process.stdout.write(JSON.parse(process.argv[1]).engineRevision)' "$engine_info")"
+  else
+    printf 'Warning: engine version is unknown; skin startup will continue.\n' >&2
+  fi
+fi
 
 if [ "$PORT_EXPLICIT" = "false" ] && [ -f "$STATE_PATH" ]; then
   saved_port="$(state_field port)" || fail "Could not read the existing state port."
@@ -117,6 +131,11 @@ APPLESCRIPT
     RESTART_EXISTING="true"
   fi
   [ "$RESTART_EXISTING" = "true" ] || fail "ChatGPT is already running without the verified skin CDP endpoint. Close it first or pass --restart-existing."
+  if [ -n "$MANAGER_PRECONDITION" ]; then
+    current_probe="$(/bin/bash "$SCRIPT_DIR/manager-platform.sh" probe "$MANAGER_APPLICATION_ROOT")" || fail "Could not recheck restart consent."
+    current_fingerprint="$("$NODE" -e 'process.stdout.write(JSON.parse(process.argv[1]).fingerprint)' "$current_probe")"
+    [ "$current_fingerprint" = "$MANAGER_PRECONDITION" ] || fail "The confirmed Codex process/session changed before restart."
+  fi
   if quit_codex_for_restart; then
     :
   else
@@ -127,6 +146,11 @@ APPLESCRIPT
 fi
 
 if [ -f "$STATE_PATH" ]; then
+  if [ -n "$MANAGER_PRECONDITION" ] && [ "$DEBUG_READY" = true ]; then
+    current_probe="$(/bin/bash "$SCRIPT_DIR/manager-platform.sh" probe "$MANAGER_APPLICATION_ROOT")" || fail "Could not recheck watcher handoff consent."
+    current_fingerprint="$("$NODE" -e 'process.stdout.write(JSON.parse(process.argv[1]).fingerprint)' "$current_probe")"
+    [ "$current_fingerprint" = "$MANAGER_PRECONDITION" ] || fail "The confirmed browser session changed before watcher handoff."
+  fi
   stop_recorded_injector
 fi
 
@@ -212,6 +236,12 @@ fi
 cleanup_verify_output
 
 mark_state_active || fail "Could not commit the verified active skin state."
+if [ -n "$LAUNCH_ENGINE_REVISION" ]; then
+  if recorded_injector_process_matches "$INJECTOR_PID" "$INJECTOR_STARTED_AT" "$NODE" "$INJECTOR" "$PORT"; then
+    "$NODE" "$ENGINE_WORKER" record-start "$ENGINE_ROOT" "$LAUNCH_ENGINE_REVISION" >/dev/null \
+      || printf 'Warning: the skin was verified, but its engine version could not be recorded.\n' >&2
+  fi
+fi
 write_operation_state success "$(dreamskin_text skin_applied)" "$OPERATION_TOKEN" \
   || fail "Could not publish the completed apply state."
 OPERATION_FINISHED="true"

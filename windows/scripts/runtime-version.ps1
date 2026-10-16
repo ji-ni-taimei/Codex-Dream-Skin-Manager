@@ -34,6 +34,27 @@ function Get-DreamSkinRuntimeFingerprint {
     $runtimeFiles = if (@($extendedRuntimeFiles | Where-Object {
       -not (Test-Path -LiteralPath $_ -PathType Leaf)
     }).Count -eq 0) { $baseRuntimeFiles + $extendedRuntimeFiles } else { $baseRuntimeFiles }
+    $sharedEngineFiles = @(
+      (Join-Path $SkillRoot 'scripts\cdp-transport.mjs'),
+      (Join-Path $SkillRoot 'scripts\injection-engine.mjs'),
+      (Join-Path $SkillRoot 'scripts\watcher-engine.mjs'),
+      (Join-Path $SkillRoot 'scripts\media-cache.mjs'),
+      (Join-Path $SkillRoot 'scripts\theme-payload.mjs'),
+      (Join-Path $SkillRoot 'scripts\renderer-session.mjs'),
+      (Join-Path $SkillRoot 'scripts\renderer-verification.mjs')
+    )
+    $injectorSource = [System.IO.File]::ReadAllText($currentInjector)
+    $usesSharedEngine = $injectorSource.Contains('from "./cdp-transport.mjs"') -or
+      $injectorSource.Contains('from "./injection-engine.mjs"') -or
+      $injectorSource.Contains('from "./watcher-engine.mjs"')
+    $sharedEnginePresent = @($sharedEngineFiles | Where-Object {
+      Test-Path -LiteralPath $_ -PathType Leaf
+    }).Count
+    if ($usesSharedEngine -or $sharedEnginePresent -gt 0) {
+      # A partial shared engine must be stale, never fingerprinted as legacy.
+      if ($sharedEnginePresent -ne $sharedEngineFiles.Count) { return '' }
+      $runtimeFiles += $sharedEngineFiles
+    }
     $componentHashes = @()
     foreach ($runtimeFile in $runtimeFiles) {
       if (-not (Test-Path -LiteralPath $runtimeFile -PathType Leaf)) { return '' }

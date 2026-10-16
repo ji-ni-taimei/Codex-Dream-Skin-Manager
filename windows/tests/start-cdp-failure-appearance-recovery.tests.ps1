@@ -19,7 +19,8 @@ $source = $source.Replace('(Split-Path -Parent $PSScriptRoot)', '''mock-skill-ro
 $source = $source.Replace('$ConfigPath = Join-Path $HOME ''.codex\config.toml''',
   '$ConfigPath = Join-Path $StateRoot ''fixture-config.toml''')
 # Isolate the selected-theme child and optional animation references too.
-$source = $source.Replace('Join-Path $PSScriptRoot ''manager-actions.ps1''', "'mock-manager.ps1'")
+$source = $source.Replace('Join-Path $PSScriptRoot ''platform-theme.ps1''', "'mock-manager.ps1'")
+$source = $source.Replace('Join-Path $PSScriptRoot ''manager-platform.ps1''', "'mock-platform.ps1'")
 $source = $source.Replace('Join-Path $PSScriptRoot ''play-startup-animation.mjs''', "'mock-animation.mjs'")
 if ($source.Contains('$PSScriptRoot') -or $source.Contains('$HOME')) {
   throw 'CDP failure fixture left a real script-root dependency in isolated source.'

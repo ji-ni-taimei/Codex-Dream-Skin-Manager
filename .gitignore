@@ -10,10 +10,16 @@
 /build/
 /bin/
 /obj/
+hosts/**/bin/
+hosts/**/obj/
+hosts/**/.build*/
 /TestResults/
 /coverage/
 /artifacts/
 /dist/
+/output/
+/tmp/
+node_modules/
 /macos/runtime/
 *.trx
 *.coverage

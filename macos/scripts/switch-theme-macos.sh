@@ -8,8 +8,11 @@ set -euo pipefail
 
 THEME_ID=""
 SNAPSHOT_DIR=""
+MANAGER_SNAPSHOT_DIR=""
+AUTO_RESTART="true"
 EXPECTED_CONTENT_FINGERPRINT=""
 LOCK_TOKEN=""
+LOCK_OWNER="$PPID"
 APPLY_NOW="true"
 OPERATION_TOKEN=""
 stage=""
@@ -30,16 +33,28 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --id) THEME_ID="${2:-}"; shift 2 ;;
     --snapshot-dir) SNAPSHOT_DIR="${2:-}"; shift 2 ;;
+    --manager-snapshot-dir) MANAGER_SNAPSHOT_DIR="${2:-}"; shift 2 ;;
+    --no-auto-restart) AUTO_RESTART="false"; shift ;;
     --expect-fingerprint) EXPECTED_CONTENT_FINGERPRINT="${2:-}"; shift 2 ;;
     --lock-token) LOCK_TOKEN="${2:-}"; shift 2 ;;
+    --lock-owner) LOCK_OWNER="${2:-}"; shift 2 ;;
     --no-apply) APPLY_NOW="false"; shift ;;
     *) fail "Unknown argument: $1" ;;
   esac
 done
 
 [ -z "$THEME_ID" ] || [ -z "$SNAPSHOT_DIR" ] || fail "Choose either a saved theme id or a rollback snapshot, not both."
-[ -n "$THEME_ID" ] || [ -n "$SNAPSHOT_DIR" ] \
+[ -z "$MANAGER_SNAPSHOT_DIR" ] || { [ -z "$THEME_ID" ] && [ -z "$SNAPSHOT_DIR" ]; } || fail "Choose exactly one theme source."
+[ -n "$THEME_ID" ] || [ -n "$SNAPSHOT_DIR" ] || [ -n "$MANAGER_SNAPSHOT_DIR" ] \
   || fail "Usage: switch-theme-macos.sh --id <theme-id> [--expect-fingerprint <sha256>]"
+if [ -n "$MANAGER_SNAPSHOT_DIR" ]; then
+  case "$MANAGER_SNAPSHOT_DIR" in "$STATE_ROOT"/manager-operations/snapshots/*) ;; *) fail "Manager snapshot escapes its reserved directory." ;; esac
+  snapshot_leaf="${MANAGER_SNAPSHOT_DIR##*/}"
+  case "$snapshot_leaf" in ''|*[!a-f0-9-]*) fail "Invalid manager snapshot identity." ;; esac
+  [ "${#snapshot_leaf}" -eq 36 ] && [ "$MANAGER_SNAPSHOT_DIR" = "$STATE_ROOT/manager-operations/snapshots/$snapshot_leaf" ] \
+    || fail "Invalid manager snapshot identity."
+  [ -n "$LOCK_TOKEN" ] || fail "Manager snapshots require an inherited transaction lock."
+fi
 if [ -n "$THEME_ID" ]; then
   case "$THEME_ID" in
     ''|.*|*[!A-Za-z0-9._-]*) fail "Theme id must start with a letter or number and contain only letters, numbers, dots, underscores, and hyphens." ;;
@@ -55,7 +70,10 @@ fi
 
 ensure_state_root
 THEMES_ROOT="$STATE_ROOT/themes"
-if [ -n "$THEME_ID" ]; then
+if [ -n "$MANAGER_SNAPSHOT_DIR" ]; then
+  SRC="$MANAGER_SNAPSHOT_DIR"
+  [ -d "$SRC" ] && [ ! -L "$SRC" ] || fail "Manager snapshot is missing."
+elif [ -n "$THEME_ID" ]; then
   SRC="$THEMES_ROOT/$THEME_ID"
   [ -d "$SRC" ] || fail "Theme not found: $THEME_ID"
   [ -f "$SRC/theme.json" ] || fail "theme.json missing in $THEME_ID"
@@ -69,7 +87,7 @@ else
 fi
 
 if [ -n "$LOCK_TOKEN" ]; then
-  assert_inherited_theme_switch_lock "$LOCK_TOKEN" "$PPID"
+  assert_inherited_theme_switch_lock "$LOCK_TOKEN" "$LOCK_OWNER"
 else
   acquire_theme_switch_lock "$(new_operation_token)"
 fi
@@ -79,9 +97,12 @@ if [ "$APPLY_NOW" = "true" ]; then
     || fail "Could not publish the theme switch operation state."
 fi
 ensure_node_runtime
-themes_root_real="$(cd "$THEMES_ROOT" && pwd -P)"
+themes_root_real=""
+[ ! -d "$THEMES_ROOT" ] || themes_root_real="$(cd "$THEMES_ROOT" && pwd -P)"
 src_real="$(cd "$SRC" && pwd -P)"
-if [ -n "$THEME_ID" ]; then
+if [ -n "$MANAGER_SNAPSHOT_DIR" ]; then
+  [ "$src_real" = "$MANAGER_SNAPSHOT_DIR" ] || fail "Manager snapshot resolves through a link."
+elif [ -n "$THEME_ID" ]; then
   case "$src_real/" in "$themes_root_real/"*) ;; *) fail "Theme directory escapes the saved theme library." ;; esac
 else
   state_root_real="$(cd "$STATE_ROOT" && pwd -P)"
@@ -185,6 +206,7 @@ if hot_reapply_theme "$PORT" 8000 "$OPERATION_TOKEN"; then
 fi
 
 # Cold path only when debug port is missing
+[ "$AUTO_RESTART" = "true" ] || fail "The shared manager requires new confirmation before starting or restarting Codex."
 progress "$(dreamskin_text restarting_chatgpt_for_apply)"
 if "$SCRIPT_DIR/start-dream-skin-macos.sh" --port "$PORT" --restart-existing --theme-staged; then
   progress "$(dreamskin_text skin_applied): ${THEME_NAME}"

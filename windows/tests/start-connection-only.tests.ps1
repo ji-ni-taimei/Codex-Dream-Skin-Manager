@@ -15,7 +15,8 @@ $source = $source.Replace('$Injector = Join-Path $PSScriptRoot ''injector.mjs'''
 $source = $source.Replace('(Split-Path -Parent $PSScriptRoot)', '''mock-skill-root''')
 $source = $source.Replace('$ConfigPath = Join-Path $HOME ''.codex\config.toml''', '$ConfigPath = Join-Path $StateRoot ''fixture-config.toml''')
 # Isolate the selected-theme child and optional animation references too.
-$source = $source.Replace('Join-Path $PSScriptRoot ''manager-actions.ps1''', "'mock-manager.ps1'")
+$source = $source.Replace('Join-Path $PSScriptRoot ''platform-theme.ps1''', "'mock-manager.ps1'")
+$source = $source.Replace('Join-Path $PSScriptRoot ''manager-platform.ps1''', "'mock-platform.ps1'")
 $source = $source.Replace('Join-Path $PSScriptRoot ''play-startup-animation.mjs''', "'mock-animation.mjs'")
 if ($source.Contains('$PSScriptRoot') -or $source.Contains('$HOME')) { throw 'Startup fixture contains an unisolated path.' }
 $startBlock = [scriptblock]::Create($source)
@@ -23,7 +24,7 @@ $startBlock = [scriptblock]::Create($source)
 # Load only the status function, never the manager script's top-level actions.
 $tokens = $null; $parseErrors = $null
 $managerAst = [System.Management.Automation.Language.Parser]::ParseFile(
-  (Join-Path $Root 'scripts\manager-actions.ps1'), [ref]$tokens, [ref]$parseErrors)
+  (Join-Path $Root 'scripts\platform-theme.ps1'), [ref]$tokens, [ref]$parseErrors)
 $statusFunction = @($managerAst.FindAll({ param($node)
   $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-ManagerInjectorStatus'
 }, $true))

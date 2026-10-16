@@ -6,7 +6,7 @@ import {verify,createHash} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 const run=promisify(execFile),root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-const [action,argument]=process.argv.slice(2);
+const [action,argument,expectedManifestDigest]=process.argv.slice(2);
 const MB=1024*1024;
 const channel=JSON.parse(await fs.readFile(path.join(root,'updater/channel.json'),'utf8'));
 if(channel.enabled===false) {
@@ -21,8 +21,8 @@ if(channel.enabled===false) {
 }
 const publicKey=await fs.readFile(path.join(root,'updater/public-key.pem'),'utf8');
 const stateRoot=path.join(process.env.HOME,'Library/Application Support/CodexDreamSkinStudio');
-const semver=v=>typeof v==='string'&&/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(v);
-const compare=(a,b)=>{const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<3;i++){if(x[i]!==y[i])return x[i]>y[i]?1:-1;}return 0;};
+const semver=v=>typeof v==='string'&&v.length<=64&&/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(v)?.[0]===v;
+const compare=(a,b)=>{const x=a.split('.').map(BigInt),y=b.split('.').map(BigInt);for(let i=0;i<3;i++){if(x[i]!==y[i])return x[i]>y[i]?1:-1;}return 0;};
 const hosts=new Set(['api.github.com','github.com','release-assets.githubusercontent.com','objects.githubusercontent.com']);
 async function download(url,limit) {
   for(let i=0;i<6;i++){
@@ -50,7 +50,7 @@ async function latest() {
   const manifest=JSON.parse(bytes);
   if(manifest.version!==release.tag_name.slice(5)||manifest.channel!==channel.channel||manifest.bundleIdentifier!==channel.bundleIdentifier||!semver(manifest.version)||!Array.isArray(manifest.assets))throw Error('更新清单不兼容。');
   const arch=process.arch==='arm64'?'arm64':'x64';
-  const name=`CodexDreamSkinGUI-${manifest.version}-${arch}.zip`;
+  const name=`CodexDreamSkin-${manifest.version}-${arch}.zip`;
   const asset=manifest.assets.find(a=>a.arch===arch);
   if(!asset||asset.name!==name||!Number.isSafeInteger(asset.bytes)||asset.bytes<1||asset.bytes>512*MB||!/^[a-f0-9]{64}$/.test(asset.sha256))throw Error('没有兼容本机的安装包。');
   const url=`https://github.com/${channel.repository}/releases/download/gui-v${manifest.version}/${asset.name}`;
@@ -60,8 +60,10 @@ try {
   const release=await latest();
   const result={currentVersion:channel.version,latestVersion:release.manifest.version,updateAvailable:compare(release.manifest.version,channel.version)>0,releaseUrl:`https://github.com/${channel.repository}/releases/tag/gui-v${release.manifest.version}`};
   if(action==='check'){console.log(JSON.stringify(result));}
+  else if(action==='inspect'){console.log(JSON.stringify({...result,manifestDigest:createHash('sha256').update(release.bytes).digest('hex'),packageSha256:release.asset.sha256,packageBytes:release.asset.bytes}));}
   else if(action==='prepare'){
     if(!result.updateAvailable||argument!==release.manifest.version)throw Error('更新版本已改变或不是新版本，请重新检查。');
+    if(expectedManifestDigest!==undefined&&(!/^[a-f0-9]{64}$/.test(expectedManifestDigest)||expectedManifestDigest.length!==64||createHash('sha256').update(release.bytes).digest('hex')!==expectedManifestDigest))throw Error('批准后的签名清单已改变，请重新检查并确认。');
     const updates=path.join(stateRoot,'updates');await fs.mkdir(updates,{recursive:true,mode:0o700});
     if((await fs.lstat(updates)).isSymbolicLink())throw Error('更新目录不安全。');
     const stage=await fs.mkdtemp(path.join(updates,'download-'));
@@ -72,21 +74,16 @@ try {
       // The archive is signed by this channel's publisher before extraction.
       const extracted=path.join(stage,'payload');await fs.mkdir(extracted,{mode:0o700});
       await run('/usr/bin/ditto',['-x','-k',archive,extracted],{timeout:120000,maxBuffer:MB});
-      let app=path.join(extracted,'Codex Dream Skin.app');
-      try { await fs.lstat(app); }
-      catch(error) {
-        if(error.code!=='ENOENT')throw error;
-        app=path.join(extracted,'Codex Dream Skin GUI.app');
-      }
+      const app=path.join(extracted,'Codex Dream Skin.app');
       if((await fs.lstat(app)).isSymbolicLink())throw Error('安装包应用无效。');
       await run('/usr/bin/codesign',['--verify','--deep','--strict',app],{timeout:120000,maxBuffer:MB});
       const plist=path.join(app,'Contents/Info.plist');
       const {stdout:identifier}=await run('/usr/libexec/PlistBuddy',['-c','Print :CFBundleIdentifier',plist]);
       const {stdout:version}=await run('/usr/libexec/PlistBuddy',['-c','Print :DreamSkinGUIVersion',plist]);
       if(identifier.trim()!==channel.bundleIdentifier||version.trim()!==release.manifest.version)throw Error('安装包身份或版本不匹配。');
-      const candidateChannel=JSON.parse(await fs.readFile(path.join(app,'Contents/Resources/engine/updater/channel.json'),'utf8'));
-      const candidateKey=await fs.readFile(path.join(app,'Contents/Resources/engine/updater/public-key.pem'),'utf8');
-      if(candidateChannel.repository!==channel.repository||candidateChannel.version!==release.manifest.version||candidateKey.trim()!==publicKey.trim())throw Error('安装包更新源不匹配。');
+      const candidateChannel=JSON.parse(await fs.readFile(path.join(app,'Contents/Resources/macos/updater/channel.json'),'utf8'));
+      const candidateKey=await fs.readFile(path.join(app,'Contents/Resources/macos/updater/public-key.pem'),'utf8');
+      if(candidateChannel.enabled===false||candidateChannel.repository!==channel.repository||candidateChannel.version!==release.manifest.version||candidateChannel.channel!==channel.channel||candidateChannel.bundleIdentifier!==channel.bundleIdentifier||candidateKey.trim()!==publicKey.trim())throw Error('安装包更新源不匹配。');
       console.log(JSON.stringify({...result,stagedApp:app,stage}));
     }catch(error){await fs.rm(stage,{recursive:true,force:true});throw error;}
   }else throw Error('Unknown update action.');

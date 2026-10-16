@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.0.0"
+  #error "AppVersion must be supplied from windows/VERSION"
 #endif
 #ifndef PackageRoot
   #define PackageRoot "..\build\CodexDreamSkinManager"
@@ -51,6 +51,11 @@ Source: "{#PackageRoot}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdir
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+
+[Registry]
+Root: HKCU; Subkey: "Software\Classes\dreamskin"; ValueType: string; ValueData: "URL:Dream Skin"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\dreamskin"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\dreamskin\shell\open\command"; ValueType: string; ValueData: """{app}\{#AppExeName}"" ""%1"""
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "启动 {#AppName}"; Flags: nowait postinstall skipifsilent

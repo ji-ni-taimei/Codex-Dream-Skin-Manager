@@ -2,7 +2,7 @@
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
-OUTPUT="${1:-$ROOT/menubar-app/Resources/DreamSkin.icns}"
+OUTPUT="${1:-$ROOT/release/DreamSkin.icns}"
 TMP="$(/usr/bin/mktemp -d /tmp/codex-dream-skin-icon.XXXXXX)"
 # Preserve the real exit status: with a plain cleanup trap, bash 3.2 reports
 # the trap command's status instead, so fatal errors leave exit code 0 and
@@ -16,10 +16,10 @@ SOURCE="$TMP/icon-1024.png"
 # /bin/bash 3.2 this shebang resolves to.
 if [ -n "${DREAMSKIN_SDK:-}" ]; then
   /usr/bin/xcrun swift -sdk "$DREAMSKIN_SDK" \
-    "$ROOT/menubar-app/Tools/generate-icon.swift" "$SOURCE"
+    "$ROOT/../hosts/macos/Tools/generate-icon.swift" "$SOURCE"
 else
   /usr/bin/xcrun swift \
-    "$ROOT/menubar-app/Tools/generate-icon.swift" "$SOURCE"
+    "$ROOT/../hosts/macos/Tools/generate-icon.swift" "$SOURCE"
 fi
 
 make_icon() {

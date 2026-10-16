@@ -1,43 +1,30 @@
 # 参与贡献
 
-感谢你愿意改进 Codex Dream Skin Manager。这个项目优先接受范围明确、能够验证的修改。
+项目只维护一套共享管理器，不保留旧 UI、旧入口或双轨兼容开关。
 
-## 开发环境
+## 开发环境与构建
 
-- Windows 10/11。
-- Node.js 22+。
-- 本项目仓库已包含同步后的 `windows/` 与 `macos/` 运行时；如需比较上游变更，再配置 [Codex Dream Skin](https://github.com/Fei-Away/Codex-Dream-Skin) 远端即可。
-- 不需要 .NET SDK；构建使用 Windows 自带的 .NET Framework 编译器。
-
-## 开发流程
-
-1. 创建独立分支。
-2. 只修改解决当前问题所需的文件，避免顺手重构。
-3. 为行为变化补充相应的 C# 或 PowerShell 回归测试。
-4. 运行完整构建：
+根目录执行 `npm ci`，使用 Node.js 22.22.2。Windows 安装 .NET SDK 8，运行时使用 WebView2 Evergreen；macOS 安装 Xcode Command Line Tools。
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 `
-  -SkillRoot ".\windows"
+.\build.ps1
+# 需要另一个输出目录时：
+.\build.ps1 -OutputRoot build\manager-local
 ```
-
-macOS 从源码安装引擎或执行默认本地打包前，运行 `bash macos/scripts/prepare-node-runtime.sh` 准备测试及源码引擎使用的 Universal Node。打包阶段还会为产物单独准备内置 Node；GitHub Tag 发布流程显式提供测试 Node 并跳过需要已安装 Codex 的集成段。准备脚本需 macOS 的 `lipo` / `codesign`，并联网下载固定版本、校验哈希。macOS 运行时测试需要在 macOS 上执行；若机器未安装官方 Codex，可跳过需签名客户端的集成段：
 
 ```bash
-cd macos
-NODE="$(command -v node)" CODEX_DREAM_SKIN_SKIP_SIGNED_RUNTIME_TESTS=1 CODEX_DREAM_SKIN_SKIP_DOCTOR=1 npm test
+bash macos/scripts/build-app.sh
+bash macos/scripts/build-app.sh --output /absolute/path/Codex\ Dream\ Skin.app
 ```
 
-5. 如果修改 UI，请附上截图并说明已验证的窗口尺寸或交互路径。
+构建不自动运行测试。遵循 AGENTS.md，默认只修改源码；得到明确指示后再执行相应测试、构建或实机验证，并报告实际结果。
 
-## Pull Request 要求
+## 代码归属
 
-- 说明问题、解决方式和关键取舍。
-- 列出实际运行的验证，不要用代码阅读代替测试结果。
-- 不提交 `build/`、`.catpaw/`、`.codegraph/`、IDE 状态或本机配置。
-- 不包含密钥、账号信息、用户主题状态或 Codex 对话数据。
-- 一个 Pull Request 聚焦一个问题；无关改动应拆分。
+页面和交互放 `ui/manager/`；主题、素材、导入导出、操作记录与公共业务放 `core/`；接口放 `contracts/`。壳只承担窗口、文件选择、媒体解码、系统菜单和进程通信。平台差异放 `platforms/` 及其调用的原生脚本。
 
-## 提交安全问题
+公共注入资源只改 `runtime/` 和 `tools/selectors.json`，随后用 `node tools/sync-runtime-assets.mjs` 更新两端生成镜像。新增平台脚本时同步 `packaging/shared-resources.json`。打包直接使用共享源码，不继承旧包。
 
-漏洞和潜在敏感数据泄露请遵循 [SECURITY.md](SECURITY.md)，不要创建公开 Issue。
+## 提交说明
+
+说明解决的问题、关键改动及实际运行的验证。未运行的检查明确写出；旧报告不代表新候选通过。不提交 build、个人配置、用户主题状态或凭据。提交、push 和发布须获得明确授权。

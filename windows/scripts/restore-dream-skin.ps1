@@ -6,7 +6,11 @@ param(
   [switch]$RecoverConfigBackup,
   [switch]$PromptRestart,
   [switch]$ForceRestart,
-  [switch]$NoRelaunch
+  [switch]$NoRelaunch,
+  [string]$ManagerRequestPath,
+  [string]$ManagerApplicationRoot,
+  [ValidatePattern('^[a-f0-9]{64}$')][string]$ManagerPrecondition,
+  [System.Collections.IDictionary]$ManagerEffects
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,6 +21,8 @@ $PortExplicit = $PSBoundParameters.ContainsKey('Port')
 
 $operationLock = Enter-DreamSkinOperationLock
 try {
+  if ($ManagerRequestPath -and (-not $ManagerApplicationRoot -or -not $ManagerPrecondition -or $null -eq $ManagerEffects -or
+      -not $RestoreBaseTheme -or $RecoverConfigBackup -or $Uninstall -or $NoRelaunch -or -not $ForceRestart)) { throw 'Invalid shared restore invocation.' }
   if ($RestoreBaseTheme -and $RecoverConfigBackup) {
     throw 'Choose either -RestoreBaseTheme or -RecoverConfigBackup, not both.'
   }
@@ -103,7 +109,24 @@ try {
 
   $restoreError = $null
   try {
-    Stop-DreamSkinTrayProcess
+    if ($ManagerRequestPath) {
+      # The caller owns the same reentrant operation mutex. Recheck consent at
+      # the process boundary, then separately bind config after closing Codex.
+      $managerNode = Join-Path $ManagerApplicationRoot 'runtime\node\node.exe'
+      $managerWorker = Join-Path $ManagerApplicationRoot 'shared\core\runtime-worker.mjs'
+      $restoreProbe = & (Join-Path $PSScriptRoot 'manager-platform.ps1') -Action Probe -ApplicationRoot $ManagerApplicationRoot
+      $restoreProbe = ($restoreProbe -join "`n") | ConvertFrom-Json
+      if ($restoreProbe.fingerprint -cne $ManagerPrecondition) { throw 'The confirmed restore process/session changed.' }
+      $restoreProbe64 = 'base64:' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($restoreProbe | ConvertTo-Json -Depth 10 -Compress)))
+      $null = & $managerNode $managerWorker check $ManagerApplicationRoot $restoreProbe64 $ManagerRequestPath
+      if ($LASTEXITCODE -ne 0) { throw 'The confirmed restore inputs changed.' }
+      $null = Restore-DreamSkinBaseTheme -ConfigPath $config -BackupPath $backup -VerifyOnly
+      if (Test-DreamSkinPendingAppearanceTransaction -BackupPath $backup) { throw 'An unfinished appearance transaction requires recovery before selective restore.' }
+      $ManagerEffects.runtimeDetached = $null
+      $ManagerEffects.rendererRemoved = $null
+      $ManagerEffects.rendererApplied = $null
+      if ($shouldCloseCodex) { $ManagerEffects.codexRestarted = $null }
+    }
     if ($shouldCloseCodex) {
       Stop-DreamSkinCodex -Codex $codex -AllowForce:$forceAuthorized
       if ($portOwnedByCodex -and -not (Wait-DreamSkinPortAvailable -Port $Port -TimeoutSeconds 5)) {
@@ -112,6 +135,7 @@ try {
     }
 
     $recordedInjectorStopped = Stop-DreamSkinRecordedInjector -State $state
+    if ($ManagerRequestPath -and -not $recordedInjectorStopped) { throw 'The recorded injector could not be stopped safely; configuration was preserved.' }
     if (-not $recordedInjectorStopped) {
       $staleStatePath = Archive-DreamSkinStateFile -Path $StatePath
       Write-Warning "Archived stale Dream Skin state at $staleStatePath"
@@ -123,27 +147,32 @@ try {
       Restore-DreamSkinConfigBackup -ConfigPath $config -BackupPath $backup -RecoveryBackupPath $recoveryBackup
       Write-Host "Recovered the exact pre-install config; previous current config saved at $recoveryBackup"
     } elseif ($RestoreBaseTheme) {
+      if ($ManagerRequestPath) {
+        $null = & $managerNode $managerWorker check-appearance $ManagerApplicationRoot '{}' $ManagerRequestPath
+        if ($LASTEXITCODE -ne 0) { throw 'The confirmed appearance config or backup changed.' }
+        $ManagerEffects.appearanceRestored = $null
+      }
       Restore-DreamSkinBaseTheme -ConfigPath $config -BackupPath $backup
+      if ($ManagerRequestPath) {
+        if (-not (Restore-DreamSkinBaseTheme -ConfigPath $config -BackupPath $backup -VerifyOnly)) { throw 'The selective appearance readback did not match.' }
+        $ManagerEffects.appearanceRestored = $true
+      }
     }
     if ($RecoverConfigBackup -or $RestoreBaseTheme) {
       $archiveStamp = (Get-Date).ToString('yyyyMMdd-HHmmss-fff') + '-' + [guid]::NewGuid().ToString('N')
       $archivePath = Join-Path $StateRoot "config.restored-$archiveStamp.toml"
+      if ($ManagerRequestPath) { $ManagerEffects.backupArchived = $null }
       Archive-DreamSkinConfigBackup -BackupPath $backup -ArchivePath $archivePath
+      if ($ManagerRequestPath) { $ManagerEffects.backupArchived = [bool]((Test-Path -LiteralPath $archivePath -PathType Leaf) -and -not (Test-Path -LiteralPath $backup)) }
       Write-Host "Archived the completed pre-install backup at $archivePath"
     }
 
     Remove-Item -LiteralPath $StatePath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath (Join-Path $StateRoot 'paused') -Force -ErrorAction SilentlyContinue
-    if ($Uninstall) {
-      $desktop = [Environment]::GetFolderPath('Desktop')
-      $startMenu = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
-      @(
-        (Join-Path $desktop 'Codex Dream Skin.lnk'),
-        (Join-Path $desktop 'Codex Dream Skin - Restore.lnk'),
-        (Join-Path $desktop 'Codex Dream Skin - Tray.lnk'),
-        (Join-Path $startMenu 'Codex Dream Skin.lnk'),
-        (Join-Path $startMenu 'Codex Dream Skin - Tray.lnk')
-      ) | ForEach-Object { Remove-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue }
+    if ($ManagerRequestPath) {
+      if ((Test-Path -LiteralPath $StatePath) -or (Test-Path -LiteralPath (Join-Path $StateRoot 'paused')) -or
+          -not (Test-DreamSkinPortAvailable -Port $Port)) { throw 'The skin session could not be detached safely.' }
+      $ManagerEffects.runtimeDetached = $true
     }
 
     if ($shouldCloseCodex -and -not $NoRelaunch) {
@@ -151,6 +180,7 @@ try {
         throw 'Codex cannot be reopened because its current executable is unavailable.'
       }
       $null = Start-DreamSkinCodex -Codex $relaunchCodex
+      if ($ManagerRequestPath -and (Get-DreamSkinCodexProcesses -Codex $relaunchCodex).Count -gt 0) { $ManagerEffects.codexRestarted = $true }
     }
   } catch {
     $restoreError = $_

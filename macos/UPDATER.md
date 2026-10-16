@@ -7,7 +7,7 @@ The signed native GUI channel has a separate release version (`macos/GUI_VERSION
 1. Generate a long-lived Ed25519 signing key locally and keep a secure backup. Do not commit the private key.
 2. Add its PEM contents to the repository Actions secret `DREAMSKIN_GUI_SIGNING_KEY`.
 3. Set `macos/GUI_VERSION`, then push `gui-v<version>` or manually dispatch `Native macOS GUI release` with the matching version.
-4. The workflow builds the universal app, derives the pinned public key from the publisher secret, signs the manifest, and publishes the complete GitHub Release. The user download is `CodexDreamSkin-<version>-universal.zip` containing `Codex Dream Skin.app`. Separate architecture-labelled update archives retain the legacy `Codex Dream Skin GUI.app` root required by already-installed 0.1.x updaters; new updater code accepts either root. Updating preserves the installed application's filename.
+4. The workflow builds the universal app, derives the pinned public key from the publisher secret, signs the manifest, and publishes the complete GitHub Release. The user download is `CodexDreamSkin-<version>-universal.zip` containing `Codex Dream Skin.app`. All architecture-labelled archives contain the same universal `Codex Dream Skin.app` root. Updating preserves the installed application's filename.
 
 The workflow uses `GITHUB_REPOSITORY`, so a fork and the upstream project do not share a hard-coded publisher. Each maintainer owns their release repository and private signing key. Keep the same signing key between versions; rotating it requires a separately distributed trust update.
 
@@ -16,7 +16,7 @@ Local build:
 ```bash
 DREAMSKIN_UPDATE_REPOSITORY=OWNER/REPO \
 DREAMSKIN_GUI_SIGNING_KEY_FILE=/absolute/private/publisher-key.pem \
-bash macos/scripts/build-local-gui.sh
+bash macos/scripts/build-app.sh
 ```
 
 Alternatively supply `DREAMSKIN_GUI_PUBLIC_KEY` for a build machine that does not publish. Builds without publisher configuration still work and use the ordinary release check described above. No private key is copied into the app.
@@ -36,4 +36,4 @@ The release workflow uses ad-hoc code signing and publisher-signed update manife
 
 ## Validation boundary
 
-This implementation was compiled and its scripts syntax-checked. The project instructions prohibit running tests or visual verification without a separate request, so the replacement/relaunch flow has not been exercised against the user's running app.
+The current shared-manager candidate has not been rebuilt or tested. The project instructions prohibit running tests or visual verification without a separate request, so the replacement/relaunch flow has not been exercised against the user's running app.

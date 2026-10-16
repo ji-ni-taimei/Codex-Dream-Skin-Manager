@@ -1,6 +1,6 @@
 # Codex Dream Skin Manager
 
-为 Codex 桌面客户端更换背景、管理主题和调整界面外观。Windows 提供可视化管理器，macOS 提供原生主题管理窗口和菜单栏入口。
+为 Codex 桌面客户端更换背景、管理主题和调整界面外观。Windows 和 macOS 共用一套管理界面、业务核心和换肤运行时，由各自的原生窗口承载。
 
 ## 下载与安装
 
@@ -17,7 +17,7 @@
 
 ## 主要功能
 
-以下为 **Windows 管理器**的主要能力，具体以所用版本为准：
+两端共用以下主要功能，系统差异由平台适配层处理：
 
 - **主题库**：浏览内置与自定义主题，按名称、标签、分类筛选，先预览再应用。
 - **图片与动态背景**：支持 PNG/APNG、JPEG、WebP、GIF 和 MP4；批量导入、自动去重，导入导出 `.cdskin` 主题包。
@@ -26,7 +26,7 @@
 - **启用与恢复**：应用主题、暂停/继续、重置默认主题或恢复原始外观；显示连接异常并按需恢复。
 - **检查更新**：通过发布附件 `update.json` 检查新版本，无需 GitHub API；确认后下载、校验并启动安装程序。
 
-**macOS 原生 GUI**：提供主题库预览、搜索与筛选、批量导入、`.cdskin` 导入导出、主题参数编辑及删除保护，并保留 ZIP 导入与菜单栏入口。独立签名更新通道由发布者配置。详见 [GUI 使用说明](macos/GUI使用说明.md) 和 [更新服务部署](macos/UPDATER.md)。
+**macOS**：使用相同的管理页面，另外适配菜单栏、ZIP 导入、原生媒体转换和应用更新。独立签名更新通道由发布者配置。详见 [GUI 使用说明](macos/GUI使用说明.md) 和 [更新服务部署](macos/UPDATER.md)。
 
 ## 快速上手
 
@@ -47,15 +47,30 @@
 
 ## 从源码构建
 
-Windows 需 Node.js 22+（安装目录包含其 `LICENSE`），使用系统自带的 .NET Framework 编译器，无需安装 .NET SDK：
+需要 Node.js 22.22.2（含 LICENSE）并先在仓库根目录执行 `npm ci`。
+Windows 另需 .NET SDK 8 和 WebView2 Runtime；macOS 需要 Xcode Command Line Tools。
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -SkillRoot ".\windows"
+# Windows
+.\build.ps1
 ```
 
-该命令会执行测试并构建，产物位于 `build\CodexDreamSkinManager\`。开发与贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，macOS 构建见 [平台文档](macos/README.md)。
+```bash
+# macOS
+bash macos/scripts/build-app.sh
+```
 
-共享渲染代码位于 `runtime/`；修改后运行 `node tools/sync-runtime-assets.mjs`，同步到 Windows 和 macOS 的资源目录。
+默认输出分别为 `build/CodexDreamSkinManager/` 和 `build/macos/Codex Dream Skin.app`。
+构建入口只构建新管理器，不执行测试。已有输出时可指定新目录。
+
+- `ui/manager/`：共享 React 页面。
+- `core/` 与 `contracts/`：共享业务、状态及通信契约。
+- `runtime/`：共享渲染、CDP、watcher 和媒体缓存。
+- `platforms/`：平台适配；`hosts/windows/` 与 `hosts/macos/`：原生薄壳。
+
+公共运行时修改后用 `node tools/sync-runtime-assets.mjs` 生成两端镜像。
+开发说明见 [CONTRIBUTING.md](CONTRIBUTING.md)，打包布局见 [hosts/README.md](hosts/README.md)。
+当前源码已切换到新入口；本轮清理未运行构建、测试或实机验收，不能沿用旧候选的验证结论。
 
 ## 致谢与许可
 
