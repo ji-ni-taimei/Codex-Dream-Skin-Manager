@@ -95,7 +95,7 @@ final class NativeFiles {
                 guard Set(parameters.keys) == Set(["theme", "revision"]), parameters["theme"] is [String: Any], parameters["revision"] is String else { throw HostError.invalidMessage }
                 try request(method == "files.exportPackage" ? "packages.export" : "media.original", parameters) { [weak self] response in self?.finishOriginal(id, method, response) }
             }
-        } catch { reply(id, failure: error("IO_ERROR", "The native file action could not complete.")) }
+        } catch { reply(id, failure: self.error("IO_ERROR", "The native file action could not complete.")) }
         return true
     }
     private func postFailure(_ id: String, _ code: String, _ message: String) {
