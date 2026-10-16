@@ -124,13 +124,16 @@ namespace DreamSkin.SharedHost
                     (long)sequence <= eventSequence || (long)sequence > 9007199254740991L) return;
                 var name = (string)value["event"];
                 if (!new HashSet<string> { "status.changed", "operation.changed", "status.invalidated", "session.closing" }.Contains(name) ||
-                    (name == "status.changed" && ((string)value["snapshot"]?["backendSessionId"] != backendSession)) ||
+                    // Read snapshot through JObject: a JSON null is a mismatch here, not a throw.
+                    (name == "status.changed" && ((string)(value["snapshot"] as JObject)?["backendSessionId"] != backendSession)) ||
                     (name == "operation.changed" && !(value["operation"] is JObject))) { Disconnect(); return; }
                 eventSequence = (long)sequence;
                 view.CoreWebView2.PostWebMessageAsJson(value.ToString(Formatting.None)); return;
             }
             if (kind != "response") { Disconnect(); return; }
-            var session = (string)value["result"]?["backendSessionId"];
+            // A JSON null result arrives as JValue, not as null: indexing it throws
+            // and the catch above would drop the whole backend connection.
+            var session = (string)(value["result"] as JObject)?["backendSessionId"];
             if (session != null) { if (backendSession != null && backendSession != session) resources.Clear(); backendSession = session; }
             view.CoreWebView2.PostWebMessageAsJson(value.ToString(Formatting.None));
         }
