@@ -987,8 +987,10 @@
     const shellParts = new Set(["root", "main", "home", "thread", "header"]);
     const sceneNodes = [...parts].filter(([, part]) => part === "main" || part === "home")
       .map(([node]) => node);
+    const moduleComposerDecorations = new Set(selectorNodes("thread-composer-decoration"));
     const candidates = new Set([
       ...genericNodes(NEUTRAL_SURFACE_SELECTOR), ...genericNodes(SURFACE_BOUNDARIES),
+      ...moduleComposerDecorations,
       ...composerNodes, ...selectorNodes("home-utility"),
       ...[...parts].filter(([, part]) => part === "sidebar").map(([node]) => node),
     ].filter((node) => !shellParts.has(parts.get(node)) &&
@@ -1005,6 +1007,10 @@
     const isComposerDecoration = (node) => {
       if (!node || node.getAttribute?.("role") ||
         node.closest?.('[role="dialog"], [role="menu"], [role="tooltip"]')) return false;
+      // 26.1013 moved both paints into CSS modules. The fade no longer has a
+      // neutral bg-* class, so include it explicitly and reuse the clear
+      // surface paint for both layers; their native geometry stays intact.
+      if (moduleComposerDecorations.has(node)) return true;
       if (!node.matches?.(
         '[class~="pointer-events-none"][class~="absolute"][class~="inset-x-0"]' +
         '[class~="-top-8"]',
