@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version to build and validate without publishing (vX.Y.Z)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -31,7 +37,7 @@ jobs:
         id: version
         shell: powershell
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           $tag = $env:RELEASE_TAG
           if ($tag -notmatch '^v(\d+\.\d+\.\d+)$') {
@@ -192,6 +198,7 @@ jobs:
           retention-days: 30
 
   publish:
+    if: github.event_name == 'push'
     needs: [validate, windows, macos]
     runs-on: ubuntu-latest
     timeout-minutes: 10
