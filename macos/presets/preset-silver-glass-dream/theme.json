@@ -18,15 +18,9 @@
     "taskMode": "auto"
   },
   "colors": {
-    "background": "#15151C",
-    "panel": "#20202A",
-    "panelAlt": "#2B2B36",
     "accent": "#FF80C0",
     "accentAlt": "#FF80C0",
     "secondary": "#FF80C0",
-    "highlight": "#FF80C0",
-    "text": "#F4F4F8",
-    "muted": "#A8A8BA",
-    "line": "rgba(168, 168, 186, .22)"
+    "highlight": "#FF80C0"
   }
 }

@@ -32,7 +32,8 @@ for (const entry of catalog.themes) {
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
   }
-  if (!['dream', 'nature', 'cyber', 'minimal', 'dark', 'warm'].includes(category) || appearance !== 'auto' || !['auto', 'left', 'right', 'center', 'none'].includes(safeArea) || !['auto', 'ambient', 'banner', 'full', 'off'].includes(taskMode) || (accent && !/^#[0-9a-f]{6}$/i.test(accent))) throw Error(`Invalid theme options: ${id}`);
+  const expectedAppearance = /^ergouzi-(?:paper-comet|signal-star)-(light|dark)$/.exec(id)?.[1] ?? 'auto';
+  if (!['dream', 'nature', 'cyber', 'minimal', 'dark', 'warm'].includes(category) || appearance !== expectedAppearance || !['auto', 'left', 'right', 'center', 'none'].includes(safeArea) || !['auto', 'ambient', 'banner', 'full', 'off'].includes(taskMode) || (accent && !/^#[0-9a-f]{6}$/i.test(accent))) throw Error(`Invalid theme options: ${id}`);
   const theme = {schemaVersion: 1, id: `preset-${id}`, name, image, category, tags, appearance,
     art: {focusX, focusY, safeArea, taskMode}, ...(accent ? {colors: {accent: accent.toUpperCase()}} : {})};
   // Local builds can start from a GUI bundle that already contains these packs.
