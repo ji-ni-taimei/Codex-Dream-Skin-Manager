@@ -2,19 +2,6 @@
   "schemaVersion": 1,
   "themes": [
     {
-      "id": "romantic-rose",
-      "name": "浪漫玫瑰",
-      "image": "romantic-rose.jpg",
-      "category": "dream",
-      "tags": ["风景", "玫瑰", "庭院", "花房"],
-      "appearance": "auto",
-      "focusX": 0.74,
-      "focusY": 0.5,
-      "safeArea": "left",
-      "taskMode": "ambient",
-      "accent": "#A6536A"
-    },
-    {
       "id": "sakura-dawn",
       "name": "樱花黎明",
       "image": "sakura-dawn.jpg",
@@ -26,19 +13,6 @@
       "safeArea": "left",
       "taskMode": "ambient",
       "accent": "#D9879D"
-    },
-    {
-      "id": "cloud-reverie",
-      "name": "云端遐想",
-      "image": "cloud-reverie.jpg",
-      "category": "dream",
-      "tags": ["风景", "云层", "柔光", "蓝粉"],
-      "appearance": "auto",
-      "focusX": 0.64,
-      "focusY": 0.45,
-      "safeArea": "left",
-      "taskMode": "ambient",
-      "accent": "#7B78D6"
     },
     {
       "id": "moonlit-garden",
@@ -78,19 +52,6 @@
       "safeArea": "left",
       "taskMode": "ambient",
       "accent": "#7191A8"
-    },
-    {
-      "id": "ocean-glass",
-      "name": "海面玻璃",
-      "image": "ocean-glass.jpg",
-      "category": "nature",
-      "tags": ["风景", "海面", "清透", "蓝色"],
-      "appearance": "auto",
-      "focusX": 0.65,
-      "focusY": 0.52,
-      "safeArea": "left",
-      "taskMode": "ambient",
-      "accent": "#3F9FB5"
     },
     {
       "id": "bamboo-rain",
@@ -169,19 +130,6 @@
       "safeArea": "left",
       "taskMode": "ambient",
       "accent": "#C49A6C"
-    },
-    {
-      "id": "glass-workspace",
-      "name": "玻璃工作台",
-      "image": "glass-workspace.jpg",
-      "category": "minimal",
-      "tags": ["艺术", "玻璃", "工作台", "清透"],
-      "appearance": "auto",
-      "focusX": 0.67,
-      "focusY": 0.52,
-      "safeArea": "left",
-      "taskMode": "ambient",
-      "accent": "#5FA6B3"
     },
     {
       "id": "soft-geometry",

@@ -19,7 +19,7 @@ interface Props {
 const ranges = {
   focusX: ["焦点水平位置", 0, 1, 0.5], focusY: ["焦点垂直位置", 0, 1, 0.5],
   positionX: ["水平位置", -1, 1, 0], positionY: ["垂直位置", -1, 1, 0], zoom: ["缩放", 1, 2, 1],
-  bubbleOpacity: ["消息气泡不透明度（用户与助手）", 0, 1, 0], surfaceOpacity: ["面板不透明度（输入框、工具面板等）", 0, 1, 0.8],
+  bubbleOpacity: ["消息气泡不透明度（用户与助手）", 0, 1, 0], surfaceOpacity: ["面板不透明度（输入框、工具面板等）", 0, 1, 0.3],
 } as const;
 const choices = {
   appearance: ["外观模式", [["auto", "自动"], ["light", "浅色"], ["dark", "深色"]]],

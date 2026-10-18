@@ -1,8 +1,12 @@
 # 预设主题 · Preset packs
 
-这个目录放 **Codex Dream Skin 的内置预设主题**。构建 GUI 发行包时还会从 Windows 目录生成 33 款静态主题包（不包含公开分发受限的桥本有菜参考图），连同这里的哥特默认主题、两款原有动态主题和四款新增壁纸共 40 款。安装时 `install-dream-skin-macos.sh` 会把每个 `preset-*/` 幂等地播种到用户主题库 `~/Library/Application Support/CodexDreamSkinStudio/themes/`；GUI 更新后启动时也会补齐缺少的内置主题，且尊重用户删除记录。
+这个目录放 **Codex Dream Skin 的内置预设主题**。构建 GUI 发行包时还会从 Windows catalog 生成 29 款静态主题包（不包含公开分发受限的桥本有菜参考图），连同这里的哥特默认主题、两款原有动态主题、四款壁纸，以及从 Windows 共享目录复制的九款个人动态主题共 45 款。安装时 `install-dream-skin-macos.sh` 会把每个 `preset-*/` 幂等地播种到用户主题库 `~/Library/Application Support/CodexDreamSkinStudio/themes/`；GUI 更新后启动时也会补齐缺少的内置主题，且尊重用户删除记录。
 
 > This folder holds the bundled preset themes. Install seeds each `preset-*/` into the user theme library, so a fresh install ships with ready-to-use skins.
+
+## 新收录的个人动态皮肤
+
+「霓蓝绯梦」「晴风漫步」「星海之光」「次元少女」「晴窗云语」「绯羽暮歌」「倾天泻雨」「星烬长空」「琉光星眸」共用 `windows/presets/preset-*/` 下的原始 MP4 与主题参数；组装脚本直接复制，不在这里维护重复副本。所有内置皮肤的面板不透明度统一默认为 30%。原名、主题 ID、素材大小与校验值见 [Windows 预设说明](../../windows/presets/README.md#维护者个人动态皮肤)。本次只更新发行资源，不清理旧版本已经保存到用户库的主题。
 
 ## 新增壁纸预设
 
@@ -15,7 +19,7 @@
 | `preset-cold-elegance/` | 冷艳 | `冷艳.mp4` |
 | `preset-summer-forest/` | 夏天森林-大树仰拍 | `夏天森林-大树仰拍.png` |
 
-素材原文件直接打包，没有压缩或转码；主题跟随 Codex 浅暗设置，沿用维护者本地皮肤的构图和透明度参数。GUI 构建脚本直接复制这四套目录，独立于原有 36 项 Windows catalog 的生成步骤。素材来源及校验值见 [Windows 预设说明](../../windows/presets/README.md)，这些素材不纳入 MIT 软件许可。
+素材原文件直接打包，没有压缩或转码；主题跟随 Codex 浅暗设置，沿用维护者本地皮肤的构图和透明度参数。GUI 构建脚本直接复制这四套目录，独立于 32 项 Windows catalog 的生成步骤。素材来源及校验值见 [Windows 预设说明](../../windows/presets/README.md)，这些素材不纳入 MIT 软件许可。
 
 ## 原有动态预设
 

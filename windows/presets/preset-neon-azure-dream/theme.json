@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-neon-azure-dream",
+  "name": "霓蓝绯梦",
+  "image": "background.mp4",
+  "category": "cyber",
+  "tags": [
+    "动态",
+    "动漫",
+    "人物",
+    "蓝发",
+    "霓虹",
+    "81"
+  ],
+  "appearance": "auto",
+  "art": {
+    "surfaceOpacity": 0.3,
+    "focusX": 0.5,
+    "focusY": 0.5,
+    "safeArea": "auto",
+    "taskMode": "auto",
+    "positionX": 0,
+    "positionY": 0,
+    "zoom": 1,
+    "positionMode": "locked"
+  },
+  "palette": {
+    "accent": "#07BCF8"
+  }
+}

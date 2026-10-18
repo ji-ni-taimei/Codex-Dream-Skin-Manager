@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-crimson-feather-dusk",
+  "name": "绯羽暮歌",
+  "image": "background.mp4",
+  "category": "dream",
+  "tags": [
+    "动态",
+    "动漫",
+    "人物",
+    "夕阳",
+    "飞鸟",
+    "绘梨衣"
+  ],
+  "appearance": "auto",
+  "art": {
+    "focusX": 0.5,
+    "focusY": 0.5,
+    "safeArea": "auto",
+    "taskMode": "auto",
+    "bubbleOpacity": 0,
+    "surfaceOpacity": 0.3,
+    "positionX": 0,
+    "positionY": 0,
+    "zoom": 1,
+    "positionMode": "locked"
+  },
+  "palette": {
+    "accent": "#EC4899"
+  }
+}

@@ -6,7 +6,7 @@ import path from 'node:path';
 const [catalogPath, outputRoot] = process.argv.slice(2);
 if (!catalogPath || !outputRoot) throw Error('Usage: prepare-gui-presets.mjs <catalog.json> <output presets directory>');
 const catalog = JSON.parse(await fs.readFile(catalogPath, 'utf8'));
-if (catalog.schemaVersion !== 1 || !Array.isArray(catalog.themes) || catalog.themes.length !== 36) {
+if (catalog.schemaVersion !== 1 || !Array.isArray(catalog.themes) || catalog.themes.length !== 32) {
   throw Error('Windows preset catalog has an unexpected format or count.');
 }
 const sourceRoot = path.dirname(catalogPath);
@@ -50,5 +50,5 @@ for (const entry of catalog.themes) {
   await fs.writeFile(path.join(directory, 'theme.json'), `${JSON.stringify(theme, null, 2)}\n`);
   generated++;
 }
-if (seen.size !== 36 || generated !== 33) throw Error(`Unexpected GUI preset count: ${seen.size} catalog entries, ${generated} generated`);
+if (seen.size !== 32 || generated !== 29) throw Error(`Unexpected GUI preset count: ${seen.size} catalog entries, ${generated} generated`);
 console.log(`Prepared ${generated} Windows catalog presets; retained two video packs and the Gothic default; excluded Arina reference artwork.`);

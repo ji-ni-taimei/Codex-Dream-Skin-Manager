@@ -49,7 +49,7 @@ export function parameters(config: Record<string, unknown>): { stored: ThemePara
     positionX: framing ? stored.positionX ?? 0 : 0, positionY: framing ? stored.positionY ?? 0 : 0,
     zoom: framing ? stored.zoom ?? 1 : 1, positionMode: framing ? stored.positionMode ?? "locked" : "locked",
     framingEnabled: framing, safeArea: stored.safeArea ?? "auto", taskMode: stored.taskMode ?? "auto",
-    bubbleOpacity: stored.bubbleOpacity ?? 0, surfaceOpacity: stored.surfaceOpacity ?? 0.8, accent: stored.accent,
+    bubbleOpacity: stored.bubbleOpacity ?? 0, surfaceOpacity: stored.surfaceOpacity ?? 0.3, accent: stored.accent,
   } };
 }
 

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-starlit-guardian",
+  "name": "星海之光",
+  "image": "background.mp4",
+  "category": "cyber",
+  "tags": [
+    "动态",
+    "特摄",
+    "星空",
+    "迪迦"
+  ],
+  "appearance": "auto",
+  "art": {
+    "focusX": 0.5,
+    "focusY": 0.5,
+    "safeArea": "auto",
+    "taskMode": "auto",
+    "bubbleOpacity": 0,
+    "surfaceOpacity": 0.3,
+    "positionX": 0,
+    "positionY": 0,
+    "zoom": 1,
+    "positionMode": "locked"
+  },
+  "palette": {
+    "accent": "#87CEFA"
+  }
+}

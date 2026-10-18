@@ -20,7 +20,7 @@
   --ds-shell-background: rgb(var(--ds-bg-rgb) / .58);
   /* Shared floating surface settings. Change background alpha, never element
      opacity: text, icons, images and semantic highlights must stay opaque. */
-  --ds-surface-opacity: .80;
+  --ds-surface-opacity: .30;
   --ds-surface-blur: 10px;
   --ds-surface-background: rgb(var(--ds-panel-rgb) / var(--ds-surface-opacity));
   --ds-surface-filter: blur(var(--ds-surface-blur)) saturate(106%);

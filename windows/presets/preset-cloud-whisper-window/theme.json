@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-cloud-whisper-window",
+  "name": "晴窗云语",
+  "image": "background.mp4",
+  "category": "dream",
+  "tags": [
+    "动态",
+    "动漫",
+    "人物",
+    "窗边",
+    "伊蕾娜"
+  ],
+  "appearance": "auto",
+  "art": {
+    "focusX": 0.5,
+    "focusY": 0.5,
+    "safeArea": "auto",
+    "taskMode": "auto",
+    "bubbleOpacity": 0,
+    "surfaceOpacity": 0.3,
+    "positionX": 0,
+    "positionY": 0,
+    "zoom": 1,
+    "positionMode": "locked"
+  },
+  "palette": {
+    "accent": "#B65CFF"
+  }
+}

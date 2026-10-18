@@ -11,6 +11,7 @@
   "image": "background.jpg",
   "appearance": "auto",
   "art": {
+    "surfaceOpacity": 0.3,
     "focusX": 0.72,
     "focusY": 0.45,
     "safeArea": "left",

@@ -4,7 +4,7 @@ export const emptyParameters: ThemeParameters = { appearance: null, focusX: null
   zoom: null, positionMode: null, framingEnabled: null, safeArea: null, taskMode: null, bubbleOpacity: null, surfaceOpacity: null, accent: null };
 // Only new imports use these explicit defaults. Existing themes keep their null values.
 export const importParameters: ThemeParameters = { ...emptyParameters, appearance: "auto", positionX: 0, positionY: 0,
-  zoom: 1, positionMode: "locked", framingEnabled: true, safeArea: "auto", taskMode: "auto", bubbleOpacity: 0, surfaceOpacity: 0.8, accent: "#B65CFF" };
+  zoom: 1, positionMode: "locked", framingEnabled: true, safeArea: "auto", taskMode: "auto", bubbleOpacity: 0, surfaceOpacity: 0.3, accent: "#B65CFF" };
 const finite = (value: number | null, fallback: number, min: number, max: number) => typeof value === "number" && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
 
 // UI defaults describe a preview only; they must never be persisted as a patch.
@@ -17,7 +17,7 @@ export function previewParameters(stored: ThemeParameters, patch: Partial<ThemeP
     positionX: framing ? finite(value.positionX, 0, -1, 1) : 0, positionY: framing ? finite(value.positionY, 0, -1, 1) : 0,
     zoom: framing ? finite(value.zoom, 1, 1, 2) : 1, positionMode: framing ? value.positionMode ?? "locked" : "locked", framingEnabled: framing,
     safeArea: value.safeArea ?? "auto", taskMode: value.taskMode ?? "auto", bubbleOpacity: finite(value.bubbleOpacity, 0, 0, 1),
-    surfaceOpacity: finite(value.surfaceOpacity, 0.8, 0, 1), accent: value.accent && /^#[0-9a-f]{6}$/i.test(value.accent) ? value.accent : null,
+    surfaceOpacity: finite(value.surfaceOpacity, 0.3, 0, 1), accent: value.accent && /^#[0-9a-f]{6}$/i.test(value.accent) ? value.accent : null,
   };
 }
 

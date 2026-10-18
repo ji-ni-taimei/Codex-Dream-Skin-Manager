@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-prismatic-star-eyes",
+  "name": "琉光星眸",
+  "image": "background.mp4",
+  "category": "dream",
+  "tags": [
+    "动态",
+    "动漫",
+    "人物",
+    "眼眸",
+    "星瞳"
+  ],
+  "appearance": "auto",
+  "art": {
+    "focusX": 0.5,
+    "focusY": 0.5,
+    "safeArea": "auto",
+    "taskMode": "auto",
+    "bubbleOpacity": 0,
+    "surfaceOpacity": 0.3,
+    "positionX": 0,
+    "positionY": 0,
+    "zoom": 1,
+    "positionMode": "locked"
+  },
+  "palette": {
+    "accent": "#F472B6"
+  }
+}

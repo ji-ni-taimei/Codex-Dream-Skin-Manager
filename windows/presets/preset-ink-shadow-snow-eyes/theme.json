@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "preset-ink-shadow-snow-eyes",
+  "name": "次元少女",
+  "image": "background.mp4",
+  "category": "dream",
+  "tags": [
+    "动态",
+    "动漫",
+    "人物",
+    "萌宠",
+    "次元少女"
+  ],
+  "appearance": "auto",
+  "art": {
+    "focusX": 0.5,
+    "focusY": 0.5,
+    "safeArea": "auto",
+    "taskMode": "auto",
+    "bubbleOpacity": 0,
+    "surfaceOpacity": 0.3,
+    "positionX": 0,
+    "positionY": 0,
+    "zoom": 1,
+    "positionMode": "locked"
+  },
+  "palette": {
+    "accent": "#FFE4E1"
+  }
+}

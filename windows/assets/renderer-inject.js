@@ -381,7 +381,7 @@
   };
 
   const surfaceOpacity = typeof ART.surfaceOpacity === "number" && Number.isFinite(ART.surfaceOpacity)
-    ? clamp(ART.surfaceOpacity, 0, 1) : 0.8;
+    ? clamp(ART.surfaceOpacity, 0, 1) : 0.3;
 
   const readableAccentInk = (accent, panel) => {
     // The send button sits on the composer surface, which renders panel RGB
