@@ -137,8 +137,9 @@ namespace DreamSkin.SharedHost
             if (session != null) { if (backendSession != null && backendSession != session) resources.Clear(); backendSession = session; }
             view.CoreWebView2.PostWebMessageAsJson(value.ToString(Formatting.None));
         }
-        private void ResourceRequested(object sender, CoreWebView2WebResourceRequestedEventArgs e)
+        private async void ResourceRequested(object sender, CoreWebView2WebResourceRequestedEventArgs e)
         {
+            var deferral = e.GetDeferral();
             try
             {
                 var uri = new Uri(e.Request.Uri);
@@ -162,14 +163,18 @@ namespace DreamSkin.SharedHost
                     if (handle.Length < 1 || handle.Length > 128L * 1024 * 1024) throw new IOException();
                     using (var hash = SHA256.Create())
                         if (BitConverter.ToString(hash.ComputeHash(handle)).Replace("-", "").ToLowerInvariant() != (string)resource["sha256"]) throw new IOException();
-                    var image = PreviewImageLoader.Load(source, (string)resource["variant"] == "thumbnail" ? 400 : 1200);
+                    var image = await PreviewImageLoader.LoadAsync(source, (string)resource["variant"] == "thumbnail" ? 400 : 1200);
+                    if (closed) return;
+                    if (!resources.TryGetValue(id, out var current) || current != resource ||
+                        DateTimeOffset.Parse((string)resource["expiresAt"]) <= DateTimeOffset.UtcNow) throw new IOException();
                     if (image == null) throw new IOException();
                     var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(image));
                     var stream = new MemoryStream(); encoder.Save(stream); stream.Position = 0;
                     e.Response = view.CoreWebView2.Environment.CreateWebResourceResponse(stream, 200, "OK", "Content-Type: image/png\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nAccess-Control-Allow-Origin: https://manager.dreamskin.invalid\r\nContent-Security-Policy: default-src 'none'");
                 }
             }
-            catch { e.Response = view.CoreWebView2.Environment.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes("Preview unavailable")), 404, "Unavailable", "Content-Type: text/plain\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff"); }
+            catch { if (!closed) e.Response = view.CoreWebView2.Environment.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes("Preview unavailable")), 404, "Unavailable", "Content-Type: text/plain\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff"); }
+            finally { deferral.Complete(); }
         }
     }
 }

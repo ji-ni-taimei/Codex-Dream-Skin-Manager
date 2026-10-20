@@ -1,6 +1,9 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
@@ -9,12 +12,22 @@ namespace DreamSkin.SharedHost
 {
     internal static class PreviewImageLoader
     {
-        public static BitmapSource Load(string path, int maximumWidth)
+        private static readonly SemaphoreSlim VideoDecoders = new SemaphoreSlim(2);
+
+        public static async Task<BitmapSource> LoadAsync(string path, int maximumWidth)
         {
             if (string.IsNullOrWhiteSpace(path) || !File.Exists(path) || maximumWidth < 1) return null;
             string fullPath = Path.GetFullPath(path);
             if (string.Equals(Path.GetExtension(fullPath), ".mp4", StringComparison.OrdinalIgnoreCase))
-                return LoadShellThumbnail(fullPath, maximumWidth);
+            {
+                var thumbnail = LoadShellThumbnail(fullPath, maximumWidth);
+                if (thumbnail != null) return thumbnail;
+                // Windows thumbnail handlers cannot decode some supported MP4 profiles,
+                // including H.264 High 10. Use an installed FFmpeg without changing the source.
+                await VideoDecoders.WaitAsync();
+                try { return await Task.Run(() => LoadVideoFrameAsync(fullPath, maximumWidth)); }
+                finally { VideoDecoders.Release(); }
+            }
 
             BitmapImage bitmap = new BitmapImage();
             bitmap.BeginInit();
@@ -24,6 +37,63 @@ namespace DreamSkin.SharedHost
             bitmap.EndInit();
             bitmap.Freeze();
             return bitmap;
+        }
+
+        private static async Task<BitmapSource> LoadVideoFrameAsync(string path, int maximumWidth)
+        {
+            using (var process = new Process())
+            {
+                process.StartInfo = new ProcessStartInfo {
+                    FileName = "ffmpeg.exe", UseShellExecute = false, CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    Arguments = "-hide_banner -loglevel quiet -nostdin -threads 2 -i \"" + path +
+                        "\" -map 0:v:0 -frames:v 1 -an -sn -dn -vf \"scale=" + maximumWidth + ":" + maximumWidth +
+                        ":force_original_aspect_ratio=decrease\" -threads 2 -pix_fmt rgb24 -c:v png -f image2pipe pipe:1"
+                };
+                try
+                {
+                    if (!process.Start()) return null;
+                    var read = ReadFrameAsync(process.StandardOutput.BaseStream);
+                    if (await Task.WhenAny(read, Task.Delay(10000)) != read)
+                    {
+                        process.Kill();
+                        try { await read; } catch { }
+                        return null;
+                    }
+                    var bytes = await read;
+                    if (!process.WaitForExit(1000) || process.ExitCode != 0 || bytes.Length == 0) return null;
+                    using (var stream = new MemoryStream(bytes))
+                    {
+                        var bitmap = new BitmapImage();
+                        bitmap.BeginInit();
+                        bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                        bitmap.StreamSource = stream;
+                        bitmap.EndInit();
+                        bitmap.Freeze();
+                        return bitmap;
+                    }
+                }
+                catch { return null; } // FFmpeg is optional; native thumbnails remain the default.
+                finally
+                {
+                    try { if (!process.HasExited) process.Kill(); } catch { }
+                }
+            }
+        }
+
+        private static async Task<byte[]> ReadFrameAsync(Stream stream)
+        {
+            using (var output = new MemoryStream())
+            {
+                var buffer = new byte[8192];
+                int count;
+                while ((count = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                {
+                    if (output.Length + count > 8 * 1024 * 1024) throw new IOException("Video preview exceeds its size limit.");
+                    output.Write(buffer, 0, count);
+                }
+                return output.ToArray();
+            }
         }
 
         private static BitmapSource LoadShellThumbnail(string path, int maximumWidth)
