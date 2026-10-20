@@ -51,7 +51,14 @@ export function ThemeLibrary({ client, platform, visible: pageVisible, themes, s
       return <button disabled={busy} aria-pressed={selected === identity(theme)} className={`theme-card ${selected === identity(theme) ? "active" : ""}`} key={identity(theme)} onClick={() => onChoose(theme)}>
         {client ? <MediaPreview key={theme.revision} client={client} target={{ kind: "theme", theme: theme.ref, revision: theme.revision, variant: "thumbnail" }} name={theme.name}
           mediaKind={theme.mediaKind} visible={pageVisible} thumbnail /> : <div className="theme-art">{tr("预览未连接")}</div>}
-        <div className="theme-card-caption"><strong title={theme.name}><i className={`category-dot category-${theme.displayCategories[0] ?? "art"}`} />{theme.name}</strong><small>{theme.ref.source === "preset" ? tr("内置") : tr("我的")}</small></div>
+        <div className="theme-card-caption">
+          <strong title={theme.name}><i className={`category-dot category-${theme.displayCategories[0] ?? "art"}`} /><span>{theme.name}</span></strong>
+          <div className="theme-card-badges">
+            <small>{theme.ref.source === "preset" ? tr("内置") : tr("我的")}</small>
+            {(theme.displayCategories.length ? theme.displayCategories : ["art"]).map(category =>
+              <small className="theme-category-badge" key={category}>{tr(categories[category] ?? category)}</small>)}
+          </div>
+        </div>
       </button>;
     })}</div>
     {loading && <p className="empty" role="status">{tr("正在读取主题库…")}</p>}

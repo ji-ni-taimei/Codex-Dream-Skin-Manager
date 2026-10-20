@@ -80,9 +80,12 @@ main { height: 100%; max-width: 1440px; margin: 0 auto; padding: 22px 24px 12px;
 .theme-card:focus-visible { outline: 3px solid #d8ae57; outline-offset: 2px; }
 .theme-card:disabled { color: #20242a; background: #fff; border-color: #d9dee5; opacity: .65; }
 .theme-card.active:disabled { border-color: #9e7c39; }
-.theme-card-caption { display: flex; gap: 4px; align-items: center; padding: 8px 6px; min-width: 0; }
-.theme-card-caption strong { display: flex; align-items: center; gap: 5px; font-weight: 400; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.theme-card-caption small { margin-left: auto; flex: none; font-size: 10px; }
+.theme-card-caption { display: flex; flex-direction: column; gap: 6px; align-items: stretch; padding: 8px 6px; min-width: 0; }
+.theme-card-caption strong { display: flex; align-items: center; gap: 5px; font-weight: 400; min-width: 0; }
+.theme-card-caption strong span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.theme-card-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.theme-card-badges small { padding: 2px 5px; border-radius: 4px; background: #f0f2f5; font-size: 10px; line-height: 1.4; }
+.theme-card-badges .theme-category-badge { color: #76571d; background: #faf5e9; }
 .category-dot { display: inline-block; flex: none; width: 7px; height: 7px; border-radius: 50%; background: #808a99; }
 .category-landscape, .category-people, .category-anime { background: #299b75; }
 .category-technology, .category-city { background: #344b75; }
