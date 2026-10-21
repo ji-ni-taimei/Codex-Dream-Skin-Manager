@@ -1434,15 +1434,12 @@ try {
       throw "Injector theme safety is missing: $requiredInjectorBehavior"
     }
   }
+  # ZIP imports now belong to the shared core/package-zip.mts codec.
   $themeSource = Read-DreamSkinUtf8File -Path (Join-Path $Root 'scripts\theme-windows.ps1')
   foreach ($requiredThemeSafety in @(
     '[System.IO.FileAttributes]::ReparsePoint',
     'Ensure-DreamSkinManagedDirectory',
     'Get-DreamSkinValidatedImageMetadata',
-    '[System.IO.Compression.ZipArchive]',
-    'Only ordinary .zip theme packages are supported',
-    'Theme ZIP exceeds the 192 MiB expanded-size limit',
-    'theme-package-validator.mjs',
     '16384px / 50MP safety limit',
     'Assert-DreamSkinImageFile -Path $temporary',
     'Assert-DreamSkinImageFile -Path $imageArchive'
