@@ -1,14 +1,21 @@
 import Foundation
+import Darwin
 
 enum HostError: Error { case invalidResource, disconnected, invalidMessage }
 let managerProtocol = "dreamskin.manager/1"
 let maximumMessageBytes = 1024 * 1024
 
+func canonicalFileURL(_ file: URL) throws -> URL {
+    guard let resolved = realpath(file.path, nil) else { throw HostError.invalidResource }
+    defer { free(resolved) }
+    // Foundation strips /private from macOS temporary paths; Node does not.
+    return URL(fileURLWithPath: String(cString: resolved))
+}
+
 func safeFile(_ file: URL, within root: URL) throws {
-    let absolute = file.standardizedFileURL
-    let prefix = root.standardizedFileURL.path + "/"
-    guard absolute.path.hasPrefix(prefix), absolute.resolvingSymlinksInPath().path == absolute.path else { throw HostError.invalidResource }
-    let values = try absolute.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+    let prefix = root.path + "/"
+    guard file.path.hasPrefix(prefix), try canonicalFileURL(file).path == file.path else { throw HostError.invalidResource }
+    let values = try file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
     guard values.isRegularFile == true, values.isSymbolicLink != true else { throw HostError.invalidResource }
 }
 func matches(_ value: String, _ pattern: String) -> Bool { value.range(of: pattern, options: .regularExpression) != nil }
@@ -31,13 +38,18 @@ final class NativeBackend {
     }
     func start() throws {
         try process.run()
+        // On macOS, read(upToCount:) can wait for a live pipe to fill the
+        // requested size. Read available bytes so short NDJSON replies are
+        // delivered without waiting for more output or the backend to exit.
         DispatchQueue.global(qos: .utility).async { [self] in
-            while let bytes = try? errors.fileHandleForReading.read(upToCount: 4096), !bytes.isEmpty { }
+            while !errors.fileHandleForReading.availableData.isEmpty { }
         }
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             do {
                 var pending = Data()
-                while let bytes = try output.fileHandleForReading.read(upToCount: 8192), !bytes.isEmpty {
+                while true {
+                    let bytes = output.fileHandleForReading.availableData
+                    if bytes.isEmpty { break }
                     for byte in bytes {
                         if byte == 10 {
                             guard String(data: pending, encoding: .utf8) != nil,
