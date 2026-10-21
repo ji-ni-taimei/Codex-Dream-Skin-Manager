@@ -19,6 +19,7 @@ interface Props {
 const ranges = {
   focusX: ["焦点水平位置", 0, 1, 0.5], focusY: ["焦点垂直位置", 0, 1, 0.5],
   positionX: ["水平位置", -1, 1, 0], positionY: ["垂直位置", -1, 1, 0], zoom: ["缩放", 1, 2, 1],
+  playbackRate: ["视频播放速度", 0.25, 2, 1],
   bubbleOpacity: ["消息气泡不透明度（用户与助手）", 0, 1, 0], surfaceOpacity: ["面板不透明度（输入框、工具面板等）", 0, 1, 0.3],
 } as const;
 const choices = {
@@ -58,8 +59,8 @@ export function ThemeEditor({ theme, busy, canApply, mode = "edit", allowCopy = 
   function rangeControl(key: keyof typeof ranges) {
     const [label, min, max, fallback] = ranges[key], value = Number(display[key] ?? fallback);
     const coordinate = key === "positionX" || key === "positionY" || key === "zoom";
-    return <label className="slider-field" key={key}><span>{tr(label)}<output>{Math.round(value * 100)}%</output></span>
-      <input aria-label={tr(label)} type="range" min={min * 100} max={max * 100} step="1" value={Math.round(value * 100)} disabled={coordinate && mode === "edit" && !framing}
+    return <label className="slider-field" key={key}><span>{tr(label)}<output>{key === "playbackRate" ? `${Number(value.toFixed(2))}×` : `${Math.round(value * 100)}%`}</output></span>
+      <input aria-label={tr(label)} type="range" min={min * 100} max={max * 100} step={key === "playbackRate" ? 5 : 1} value={Math.round(value * 100)} disabled={coordinate && mode === "edit" && !framing}
         onChange={event => change(key, Number(event.target.value) / 100)} />
     </label>;
   }
@@ -90,6 +91,7 @@ export function ThemeEditor({ theme, busy, canApply, mode = "edit", allowCopy = 
         {mode === "edit" ? <>{rangeControl("focusX")}{rangeControl("focusY")}</> : framingControls()}
         <div className="editor-fields">{choiceControl("safeArea")}{choiceControl("taskMode")}</div>
         {rangeControl("bubbleOpacity")}{rangeControl("surfaceOpacity")}
+        {theme.mediaKind === "video" && rangeControl("playbackRate")}
         <label className="accent-field">{tr("主题强调色")}<span><input maxLength={7} placeholder="#RRGGBB" value={String(parameter("accent") ?? "")} onChange={event => change("accent", event.target.value || null)} />
           <input type="color" aria-label={tr("选择颜色")} value={/^#[0-9a-f]{6}$/i.test(String(parameter("accent"))) ? String(parameter("accent")) : "#B65CFF"} onChange={event => change("accent", event.target.value.toUpperCase())} /></span></label>
         {mode === "edit" && <><div className="editor-row"><label><input type="checkbox" checked={framing === true} onChange={event => change("framingEnabled", event.target.checked)} />{tr("启用自定义取景")}</label></div>{framingControls()}</>}

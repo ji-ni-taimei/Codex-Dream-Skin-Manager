@@ -170,6 +170,8 @@
     ? document.createElement("video") : null;
   const mediaFileInput = fileMediaSource && document?.createElement
     ? document.createElement("input") : null;
+  const playbackRate = typeof ART.playbackRate === "number" && Number.isFinite(ART.playbackRate)
+    ? Math.max(0.25, Math.min(2, ART.playbackRate)) : 1;
   if (videoLayer) {
     videoLayer.id = "codex-dream-skin-video";
     videoLayer.muted = true;
@@ -178,6 +180,8 @@
     videoLayer.autoplay = true;
     videoLayer.playsInline = true;
     videoLayer.preload = "auto";
+    videoLayer.defaultPlaybackRate = playbackRate;
+    videoLayer.playbackRate = playbackRate;
     videoLayer.disablePictureInPicture = true;
     videoLayer.setAttribute("aria-hidden", "true");
     videoLayer.setAttribute("tabindex", "-1");

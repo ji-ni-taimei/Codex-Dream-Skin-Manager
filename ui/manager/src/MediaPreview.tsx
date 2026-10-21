@@ -8,7 +8,7 @@ import type { MediaResource, ThemeParameters, ThemeSummary } from "../../../cont
 import type { ManagerClient } from "./client";
 import { emptyParameters, previewLayout, previewParameters } from "./preview-model";
 import type { PreviewSize } from "./preview-model";
-import { previewKey, resolvePreview } from "./preview-resources";
+import { previewKey, prioritizePreview, resolvePreview } from "./preview-resources";
 import type { PreviewTarget } from "./preview-resources";
 
 export function MediaPreview({ client, target, name, parameters = null, visible, thumbnail = false, refresh = 0 }: {
@@ -22,9 +22,31 @@ export function MediaPreview({ client, target, name, parameters = null, visible,
   const [image, setImage] = useState<PreviewSize>({ width: 0, height: 0 });
   const [resource, setResource] = useState<MediaResource | null>(null), [error, setError] = useState<UiMessage>("");
   const [attempt, retry] = useState(0);
-  // Library thumbnails load for every mounted card, including offscreen cards.
-  // Scrolling or hiding the window must not discard an already decoded image.
-  const key = previewKey(target), active = thumbnail || visible;
+  const [requested, setRequested] = useState(false);
+  const nearViewport = useRef(false), releaseResource = useRef<{ leaseId: string; release(): void } | null>(null);
+  const complete = (leaseId?: string) => {
+    if (leaseId && releaseResource.current?.leaseId !== leaseId) return false;
+    releaseResource.current?.release(); releaseResource.current = null; return true;
+  };
+  // Visible cards go first; after a short head start, warm the remaining library.
+  const key = previewKey(target), active = thumbnail ? requested : visible;
+  useEffect(() => {
+    if (!thumbnail || !visible) return;
+    const element = container.current;
+    if (!element) return;
+    if (typeof IntersectionObserver === "undefined") { setRequested(true); return; }
+    const observer = new IntersectionObserver(entries => {
+      nearViewport.current = entries.some(entry => entry.isIntersecting);
+      if (nearViewport.current) { prioritizePreview(client, target); setRequested(true); }
+    }, { root: element.closest(".theme-scroll"), rootMargin: "160px 0px" });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [client, key, thumbnail, visible]);
+  useEffect(() => {
+    if (!thumbnail || !visible || requested) return;
+    const timer = window.setTimeout(() => setRequested(true), 250);
+    return () => window.clearTimeout(timer);
+  }, [thumbnail, visible, requested]);
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const appearance = () => setSystemDark(media.matches);
@@ -43,11 +65,22 @@ export function MediaPreview({ client, target, name, parameters = null, visible,
     setResource(null); setImage({ width: 0, height: 0 }); setError("");
     if (!active) return;
     const abort = new AbortController();
-    void resolvePreview(client, target, abort.signal).then(value => { if (!abort.signal.aborted) setResource(value); }, error => {
+    void resolvePreview(client, target, abort.signal, nearViewport.current).then(value => {
+      if (abort.signal.aborted) { value.release(); return; }
+      releaseResource.current = { leaseId: value.resource.leaseId, release: value.release }; setResource(value.resource);
+    }, error => {
       if (!abort.signal.aborted) setError(errorMessage(error, "此素材暂不支持预览。"));
     });
-    return () => abort.abort();
+    return () => { abort.abort(); complete(); };
   }, [client, key, active, attempt, refresh]);
+  useEffect(() => {
+    if (!resource || !active || error || image.width > 0) return;
+    // Match the queue's lease fallback so a stalled image cannot outlive its retained source silently.
+    const timer = window.setTimeout(() => {
+      if (complete(resource.leaseId)) setError(uiMessage("此素材暂时无法显示预览，请重试或继续查看主题信息。"));
+    }, 60000);
+    return () => window.clearTimeout(timer);
+  }, [resource, active, error, image.width]);
   useEffect(() => {
     if (!resource || !active || error) return;
     // Expiry limits future native reads; it does not invalidate a decoded image.
@@ -68,9 +101,9 @@ export function MediaPreview({ client, target, name, parameters = null, visible,
     <div ref={container} className={`preview media-canvas ${!thumbnail ? "with-illustration" : ""} ${dark ? "preview-dark" : "preview-light"}`}
       data-safe-area={params.safeArea} data-task-mode={!thumbnail ? mode : "full"} style={style}>
       {resource && !error ? <img key={resource.resourceId} className="preview-media" src={resource.url} alt={name} draggable={false}
-        onLoad={event => { const element = event.currentTarget; if (element.naturalWidth > 0 && element.naturalHeight > 0) setImage({ width: element.naturalWidth, height: element.naturalHeight }); else setError(uiMessage("当前素材无法获得预览尺寸。")); }}
-        onError={() => setError(uiMessage("此素材暂时无法显示预览，请重试或继续查看主题信息。"))}
-        style={layout ? { width: layout.width, height: layout.height, left: layout.x, top: layout.y } : { visibility: "hidden" }} /> :
+        onLoad={event => { if (!complete(resource.leaseId)) return; const element = event.currentTarget; if (element.naturalWidth > 0 && element.naturalHeight > 0) setImage({ width: element.naturalWidth, height: element.naturalHeight }); else setError(uiMessage("当前素材无法获得预览尺寸。")); }}
+        onError={() => { if (complete(resource.leaseId)) setError(uiMessage("此素材暂时无法显示预览，请重试或继续查看主题信息。")); }}
+        style={thumbnail ? undefined : layout ? { width: layout.width, height: layout.height, left: layout.x, top: layout.y } : { visibility: "hidden" }} /> :
         <div className="placeholder" title={error ? msg(error) : undefined}><span>{error ? thumbnail ? tr("预览不可用") : msg(error) : active ? tr("正在准备预览…") : tr("等待预览")}</span>
           {error && !thumbnail && <button type="button" onClick={() => retry(value => value + 1)}>{tr("重试预览")}</button>}</div>}
       {resource && !error && !thumbnail && <div className="preview-workspace" aria-hidden="true">

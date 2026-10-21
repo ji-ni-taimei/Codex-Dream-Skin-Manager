@@ -1,20 +1,20 @@
 import path from "node:path";
-import { mkdir, lstat, rename } from "node:fs/promises";
+import { mkdir, lstat } from "node:fs/promises";
 import { ContractError, failure, record } from "../contracts/manager.mjs";
 import type { ThemeCreateCommand, ThemeRef } from "../contracts/manager.mjs";
 import type { LibraryOutcome } from "./ports/library.mjs";
 import type { SourceSnapshot } from "./source-snapshots.mjs";
 import type { PlatformPort } from "./ports/platform.mjs";
 import { SourceSnapshots } from "./source-snapshots.mjs";
-import { fileBytes, MAX_MEDIA_BYTES, optionalBytes, safePath } from "./local-files.mjs";
+import { fileBytes, MAX_MEDIA_BYTES, safePath } from "./local-files.mjs";
 import { durableBytes, durableJson, privateDirectory, syncDirectory } from "./write-files.mjs";
 import { editTheme } from "./theme-edit.mjs";
-import { themeDetails } from "./theme-model.mjs";
+import { readThemeContent, themeDetails } from "./theme-model.mjs";
 import { themeFingerprint } from "./theme-fingerprint.mjs";
 import type { LibraryTransactions } from "./library-transactions.mjs";
 
 export async function createTheme(state: string, command: ThemeCreateCommand, rawSource: unknown, adapter: PlatformPort,
-  inspect: (bytes: Uint8Array, extension: string) => Promise<void>, validateMedia: (file: string) => Promise<void>, journals: LibraryTransactions): Promise<LibraryOutcome> {
+  inspect: (bytes: Uint8Array, extension: string) => Promise<void>, journals: LibraryTransactions): Promise<LibraryOutcome> {
   let libraryChanged: boolean | null = false, resultTheme: ThemeRef | null = null;
   try {
     if (!record(rawSource) || !record(rawSource.media) || (rawSource.original !== null && !record(rawSource.original)) ||
@@ -30,19 +30,15 @@ export async function createTheme(state: string, command: ThemeCreateCommand, ra
     const config = editTheme({ schemaVersion: 1, id, name: command.params.name.trim(), category: "custom", tags: [],
       image: "background" + extension, ...(originalExtension ? { originalImage: "original" + originalExtension } : {}) }, command.params.patch, adapter.name);
     await inspect(media, extension);
-    // Same authoritative decode path as the old importer; never launch Codex.
-    await validateMedia(path.join(snapshots.directory, source.media.fileName));
-    await snapshots.read(source.media); if (source.original) await snapshots.read(source.original);
+    // The verified private snapshot is now held in memory. Native conversion
+    // happened at selection; real Codex decoding belongs to apply.
     const fingerprint = themeFingerprint(config, media, null);
     const inventory = await adapter.inventory();
     for (const local of inventory.themes) {
       if (local.ref.source !== "saved") continue;
       try {
-        const details = await themeDetails(local);
-        const existing = await fileBytes(local.mediaPath, local.mediaRoot, MAX_MEDIA_BYTES);
-        const css = local.cssPath ? await optionalBytes(local.cssPath, local.mediaRoot, 256 * 1024) : null;
+        const { details, media: existing, css } = await readThemeContent(local);
         if (fingerprint !== themeFingerprint(local.config, existing, css)) continue;
-        if ((await themeDetails(local)).revision !== details.revision || !Buffer.from(existing).equals(await fileBytes(local.mediaPath, local.mediaRoot, MAX_MEDIA_BYTES))) continue;
         return { libraryChanged: false, resultTheme: local.ref, resultRevision: details.revision, disposition: "duplicate", error: null };
       } catch { /* An unreadable existing entry cannot suppress an import. */ }
     }
@@ -58,7 +54,6 @@ export async function createTheme(state: string, command: ThemeCreateCommand, ra
         (original && !Buffer.from(original).equals(await fileBytes(path.join(stage, "original" + originalExtension), stage, MAX_MEDIA_BYTES)))) {
       throw new ContractError("IO_ERROR", "The staged import snapshot could not be confirmed.");
     }
-    await snapshots.read(source.media); if (source.original) await snapshots.read(source.original);
     await safePath(library, state); await safePath(stage, library); await syncDirectory(stage);
     resultTheme = { source: "saved", id }; libraryChanged = null;
     await journals.publish(command.params.operationId, stage, resultTheme); libraryChanged = true;

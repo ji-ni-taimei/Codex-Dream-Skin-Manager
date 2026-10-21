@@ -4,9 +4,9 @@ import { finishPublication } from "../platforms/publication-history.mjs";
 import { pathToFileURL } from "node:url";
 import { mkdir, writeFile } from "node:fs/promises";
 import { ContractError, parseThemeRef, record } from "../contracts/manager.mjs";
-import { fileBytes, jsonObject, MAX_MEDIA_BYTES, optionalBytes, safePath, sha256 } from "./local-files.mjs";
+import { fileBytes, jsonObject, optionalBytes, safePath } from "./local-files.mjs";
 import { privateDirectory } from "./write-files.mjs";
-import { themeDetails } from "./theme-model.mjs";
+import { readThemeContent, themeDetails } from "./theme-model.mjs";
 import { dataRoot, readAdapter } from "../platforms/factory.mjs";
 import { activeTheme } from "./active-theme.mjs";
 import { defaultRuntimeTheme } from "./runtime-targets.mjs";
@@ -52,13 +52,8 @@ try {
       (await readAdapter(applicationRoot).inventory()).themes.find(value => value.ref.id === ref.id && value.ref.source === ref.source);
     if (local && (local.ref.id !== ref.id || local.ref.source !== ref.source)) throw new ContractError("THEME_CHANGED", "The active theme identity changed before resuming.");
     if (!local) throw new ContractError("THEME_NOT_FOUND", "The selected theme is no longer available.");
-    if ((await themeDetails(local)).revision !== revision) throw new ContractError("THEME_CHANGED", "The selected theme changed before publication.");
-    const media = await fileBytes(local.mediaPath, local.mediaRoot, MAX_MEDIA_BYTES);
-    const css = local.cssPath ? await optionalBytes(local.cssPath, local.mediaRoot, 256 * 1024) : null;
-    if (sha256([...local.revisionInputs, media, css ?? new Uint8Array()]) !== revision || (await themeDetails(local)).revision !== revision || !Buffer.from(media).equals(await fileBytes(local.mediaPath, local.mediaRoot, MAX_MEDIA_BYTES)) ||
-        (css !== null && local.cssPath && !Buffer.from(css).equals((await optionalBytes(local.cssPath, local.mediaRoot, 256 * 1024)) ?? new Uint8Array()))) {
-      throw new ContractError("THEME_CHANGED", "The selected theme changed while creating its publication snapshot.");
-    }
+    const { details, media, css } = await readThemeContent(local);
+    if (details.revision !== revision) throw new ContractError("THEME_CHANGED", "The selected theme changed before publication.");
     await privateDirectory(path.dirname(directory));
     // A request has exactly one prepare attempt; never overwrite another snapshot.
     await mkdir(directory, { mode: 0o700 });

@@ -6,6 +6,7 @@ $ErrorActionPreference = 'Stop'
 try {
   Assert-DreamSkinNoReparseComponents -Path $MediaPath
   Assert-DreamSkinImageFile -Path $MediaPath
-  Assert-DreamSkinVideoDecodable -Path $MediaPath
+  # Import checks the file contract only. Applying a theme establishes the
+  # Codex connection and checks real decoding before replacing the active skin.
   '{"validated":true}'
 } catch { exit 1 }

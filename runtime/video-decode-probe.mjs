@@ -23,7 +23,7 @@ export function installVideoDecodeProbe(key) {
   const cleanup = () => {
     if (timer) clearTimeout(timer);
     if (frameCallback !== null) video.cancelVideoFrameCallback?.(frameCallback);
-    video.onerror = null;
+    video.onerror = video.onloadeddata = null;
     video.pause();
     video.removeAttribute("src");
     video.load();
@@ -50,15 +50,26 @@ export function installVideoDecodeProbe(key) {
         finish({ pass: false, reason: "invalid-file" });
         return;
       }
-      if (typeof video.requestVideoFrameCallback !== "function") {
-        finish({ pass: false, reason: "frame-verification-unavailable" });
-        return;
-      }
       video.onerror = () => finish({ pass: false, reason: "decode-error", mediaError: video.error?.code || 0 });
-      frameCallback = video.requestVideoFrameCallback((_time, frame) => {
-        finish({ pass: frame.width > 0 && frame.height > 0 && frame.presentedFrames > 0,
-          reason: "decoded-frame", width: frame.width, height: frame.height });
-      });
+      // A cold/occluded renderer may decode without presenting a compositor
+      // frame. Read actual decoded pixels instead of waiting only for rVFC.
+      video.onloadeddata = () => {
+        if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = canvas.height = 1;
+          const context = canvas.getContext("2d");
+          context.drawImage(video, 0, 0, 1, 1);
+          context.getImageData(0, 0, 1, 1);
+          finish({ pass: true, reason: "decoded-frame", width: video.videoWidth, height: video.videoHeight });
+        } catch { finish({ pass: false, reason: "frame-readback-failed" }); }
+      };
+      if (typeof video.requestVideoFrameCallback === "function") {
+        frameCallback = video.requestVideoFrameCallback((_time, frame) => {
+          finish({ pass: frame.width > 0 && frame.height > 0 && frame.presentedFrames > 0,
+            reason: "decoded-frame", width: frame.width, height: frame.height });
+        });
+      }
       url = URL.createObjectURL(file);
       video.src = url;
       video.play().catch(() => finish({ pass: false, reason: "playback-rejected" }));

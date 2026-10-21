@@ -75,7 +75,7 @@ namespace DreamSkin.SharedHost
             var request = Parse(text);
             if ((string)request["protocol"] != Protocol || (string)request["kind"] != "request" ||
                 !Regex.IsMatch((string)request["requestId"] ?? "", "\\A[A-Za-z0-9:_-]{1,128}\\z") || ((string)request["requestId"]).StartsWith("native:", StringComparison.Ordinal) ||
-                !(request["params"] is JObject) || !new HashSet<string> { "system.hello", "status.get", "themes.list", "themes.get", "themes.active", "media.activePreview", "media.resolve", "skin.apply", "skin.pause", "skin.resume", "skin.reset", "skin.restore", "runtime.repair", "runtime.upgrade", "events.subscribe", "events.unsubscribe", "session.close", "operations.list", "operations.get", "operations.confirm", "themes.update", "themes.copy", "sources.preview", "sources.release", "themes.create", "packages.inspect", "packages.preview", "packages.release", "themes.importPackage", "community.inspect", "community.download", "community.import", "community.apply", "updates.check", "updates.install", "updates.get", "maintenance.inspect", "maintenance.prepare", "maintenance.execute", "maintenance.get", "themes.delete", "library.recovery.list", "library.recover" }.Contains((string)request["method"])) throw new IOException();
+                !(request["params"] is JObject) || !new HashSet<string> { "system.hello", "status.get", "themes.list", "themes.get", "themes.active", "media.activePreview", "media.resolve", "media.release", "skin.apply", "skin.pause", "skin.resume", "skin.reset", "skin.restore", "runtime.repair", "runtime.upgrade", "events.subscribe", "events.unsubscribe", "session.close", "operations.list", "operations.get", "operations.confirm", "themes.update", "themes.copy", "sources.preview", "sources.release", "themes.create", "packages.inspect", "packages.preview", "packages.release", "themes.importPackage", "community.inspect", "community.download", "community.import", "community.apply", "updates.check", "updates.install", "updates.get", "maintenance.inspect", "maintenance.prepare", "maintenance.execute", "maintenance.get", "themes.delete", "library.recovery.list", "library.recover" }.Contains((string)request["method"])) throw new IOException();
             foreach (var property in request.Properties()) if (!new HashSet<string> { "protocol", "kind", "requestId", "method", "params" }.Contains(property.Name)) throw new IOException();
             await Write(text);
         }
@@ -88,7 +88,8 @@ namespace DreamSkin.SharedHost
         private async Task Write(string text)
         {
             if (closed || Encoding.UTF8.GetByteCount(text) > Limit) throw new IOException();
-            if (Interlocked.Increment(ref queued) > 16) { Interlocked.Decrement(ref queued); throw new IOException(); }
+            // Match the manager's 32 pending requests, including 20 thumbnail warmups.
+            if (Interlocked.Increment(ref queued) > 32) { Interlocked.Decrement(ref queued); throw new IOException(); }
             try { await writer.WaitAsync(); try {
                 if (closed) throw new IOException();
                 // .NET Framework 4.8 has no StandardInputEncoding option. Write

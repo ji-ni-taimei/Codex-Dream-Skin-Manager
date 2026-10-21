@@ -134,6 +134,7 @@ async function loadTheme(themeDir) {
     focusY: unit(rawArt.focusY, "art.focusY"),
     bubbleOpacity: range(rawArt.bubbleOpacity, "art.bubbleOpacity", 0, 1, 0),
     surfaceOpacity: range(rawArt.surfaceOpacity, "art.surfaceOpacity", 0, 1, 0.3),
+    playbackRate: range(rawArt.playbackRate, "art.playbackRate", 0.25, 2, 1),
     safeArea: choice(rawArt.safeArea, "art.safeArea", ["auto", "left", "right", "center", "none"]),
     taskMode: choice(rawArt.taskMode, "art.taskMode", ["auto", "ambient", "banner", "full", "off"]),
     ...(framingEnabled ? {

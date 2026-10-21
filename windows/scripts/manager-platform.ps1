@@ -48,9 +48,14 @@ function Get-ManagerPlatformProbe {
         [regex]::IsMatch("$($watcher.CommandLine)", ('(?:^|\s)--browser-id(?:=|\s+)' + [regex]::Escape($browser) + '(?=$|\s)')))
     }
   }
-  $runtime = [ordered]@{ executable = "$($codex.Executable)"; processes = $processes; browser = $browser; port = $port }
+  # Only the verified listening browser owns this session. Renderer/GPU child
+  # processes and watcher turnover do not change an existing CDP connection.
+  $owners = if ($identity) { @(Get-DreamSkinPortListeners -Port $port | Sort-Object OwningProcess -Unique | ForEach-Object {
+    [ordered]@{ id = [int]$_.OwningProcess; startedAt = (Get-DreamSkinProcessStartedAt -ProcessId ([int]$_.OwningProcess)) }
+  }) } else { $processes }
+  $runtime = [ordered]@{ executable = "$($codex.Executable)"; owners = $owners; browser = $browser; port = $port }
   [pscustomobject]@{
-    fingerprint = Get-ManagerPlatformDigest ([ordered]@{ runtime = $runtime; watcher = $watcherVerified; paused = $paused })
+    fingerprint = Get-ManagerPlatformDigest ([ordered]@{ runtime = $runtime; paused = $paused })
     runtimeSessionId = if ($identity) { Get-ManagerPlatformDigest $runtime } else { $null }
     # A stale saved browser must be reconnected once before helpers can use it.
     # Watcher/PID observations themselves never prevent a live skin switch.

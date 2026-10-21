@@ -1,7 +1,7 @@
 import type { ThemeParameters } from "../../../contracts/manager.mjs";
 
 export const emptyParameters: ThemeParameters = { appearance: null, focusX: null, focusY: null, positionX: null, positionY: null,
-  zoom: null, positionMode: null, framingEnabled: null, safeArea: null, taskMode: null, bubbleOpacity: null, surfaceOpacity: null, accent: null };
+  zoom: null, playbackRate: null, positionMode: null, framingEnabled: null, safeArea: null, taskMode: null, bubbleOpacity: null, surfaceOpacity: null, accent: null };
 // Only new imports use these explicit defaults. Existing themes keep their null values.
 export const importParameters: ThemeParameters = { ...emptyParameters, appearance: "auto", positionX: 0, positionY: 0,
   zoom: 1, positionMode: "locked", framingEnabled: true, safeArea: "auto", taskMode: "auto", bubbleOpacity: 0, surfaceOpacity: 0.3, accent: "#B65CFF" };
@@ -16,6 +16,7 @@ export function previewParameters(stored: ThemeParameters, patch: Partial<ThemeP
     focusY: value.focusY === null ? null : finite(value.focusY, 0.5, 0, 1),
     positionX: framing ? finite(value.positionX, 0, -1, 1) : 0, positionY: framing ? finite(value.positionY, 0, -1, 1) : 0,
     zoom: framing ? finite(value.zoom, 1, 1, 2) : 1, positionMode: framing ? value.positionMode ?? "locked" : "locked", framingEnabled: framing,
+    playbackRate: finite(value.playbackRate, 1, 0.25, 2),
     safeArea: value.safeArea ?? "auto", taskMode: value.taskMode ?? "auto", bubbleOpacity: finite(value.bubbleOpacity, 0, 0, 1),
     surfaceOpacity: finite(value.surfaceOpacity, 0.3, 0, 1), accent: value.accent && /^#[0-9a-f]{6}$/i.test(value.accent) ? value.accent : null,
   };

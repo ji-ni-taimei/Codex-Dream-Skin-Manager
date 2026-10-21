@@ -2,19 +2,35 @@ import path from "node:path";
 import os from "node:os";
 import { MAX_CONFIG_BYTES, optionalBytes, sha256 } from "./local-files.mjs";
 import { readAdapter } from "../platforms/factory.mjs";
-import { themeDetails } from "./theme-model.mjs";
+import { observedThemeDetails, themeDetails, themeListStamp } from "./theme-model.mjs";
+import type { LocalTheme } from "./ports/platform.mjs";
 
-export async function defaultRuntimeTheme(applicationRoot: string) {
+const defaults = new Map<string, { local: LocalTheme; stamp: string }>();
+export async function defaultRuntimeTheme(applicationRoot: string, observe = false) {
+  // macOS resolves legacy aliases using the current active theme identity.
+  const cacheSelection = observe && process.platform === "win32";
+  const cached = cacheSelection ? defaults.get(applicationRoot) : null;
+  if (cached && await themeListStamp(cached.local).catch(() => null) === cached.stamp) return cached.local;
+  defaults.delete(applicationRoot);
   const id = process.platform === "win32" ? "preset-paper-light" : "preset-gothic-void-crusade";
   const themes = (await readAdapter(applicationRoot).inventory()).themes;
-  return themes.find(theme => theme.ref.source === "preset" && theme.ref.id === id) ??
+  const local = themes.find(theme => theme.ref.source === "preset" && theme.ref.id === id) ??
     (process.platform === "darwin" ? themes.find(theme => theme.ref.id === "gothic-void-crusade") : null) ?? null;
+  if (cacheSelection && local) {
+    if (defaults.size >= 4) defaults.delete(defaults.keys().next().value!);
+    defaults.set(applicationRoot, { local, stamp: await themeListStamp(local) });
+  }
+  return local;
 }
-export async function runtimeTargets(applicationRoot: string, state: string) {
+export async function runtimeTargets(applicationRoot: string, state: string, observe = false) {
   // Missing or invalid defaults disable reset; they never select another preset.
-  const local = await defaultRuntimeTheme(applicationRoot).catch(() => null);
-  const details = local ? await themeDetails(local).catch(() => null) : null;
-  return { defaultTheme: details?.ref ?? null, defaultRevision: details?.revision ?? null, ...await appearanceState(state) };
+  const local = await defaultRuntimeTheme(applicationRoot, observe).catch(() => null);
+  const details = local ? await (observe ? observedThemeDetails(local) : themeDetails(local)).catch(() => { defaults.delete(applicationRoot); return null; }) : null;
+  const appearance = await appearanceState(state).catch(error => {
+    if (!observe) throw error;
+    return { appearanceRevision: sha256([]), restoreAvailable: false };
+  });
+  return { defaultTheme: details?.ref ?? null, defaultRevision: details?.revision ?? null, ...appearance };
 }
 export async function appearanceState(state: string) {
   const config = path.join(os.homedir(), ".codex", "config.toml");

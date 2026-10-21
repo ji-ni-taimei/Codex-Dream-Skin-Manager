@@ -363,8 +363,9 @@ function App() {
     catch (error) { if (mounted.current) { setSnapshot(null); setStatusError(message(error)); } }
   }
   async function controlRuntime(method: RuntimeMethod) {
-    if (!client || !hello || !snapshot?.runtime?.revision || updateBusy || maintenanceBusy || operationBusy || fileBusy || importBusy || draftDirty || pendingOperation(operation)) return;
-    const id = `${hello.backendSessionId}:${crypto.randomUUID()}`, expectedRuntimeRevision = snapshot.runtime.revision;
+    if (!client || !hello || method !== "skin.pause" && (!snapshot?.runtime?.revision || draftDirty) || updateBusy || maintenanceBusy || operationBusy || fileBusy || importBusy || pendingOperation(operation)) return;
+    // Pause is bound to the live connection by the backend, not a status snapshot.
+    const id = `${hello.backendSessionId}:${crypto.randomUUID()}`, expectedRuntimeRevision = snapshot?.runtime?.revision ?? "0".repeat(64);
     setOperationBusy(true); setOperationError("");
     try {
       sessionStorage.setItem(storageKey, id); setOperationId(null); setOperation(null);

@@ -1,5 +1,3 @@
-import os from "node:os";
-import { validateVideoFile } from "./video-decode-probe.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
@@ -55,7 +53,8 @@ if (!animation || animation.frameCount > MAX_IMAGE_FRAMES) {
   throw new Error("动图帧数不能超过 " + MAX_IMAGE_FRAMES + " 帧。");
 }
 
-await validateVideoFile(fullPath, path.join(os.homedir(), "Library", "Application Support", "CodexDreamSkinStudio", "state.json"));
+// Saving an import must work before the first skin session. switch-theme and
+// the renderer still require a real decoded frame when the video is applied.
 
 const canPreview = !["webp", "mp4"].includes(format);
 console.log(JSON.stringify({
