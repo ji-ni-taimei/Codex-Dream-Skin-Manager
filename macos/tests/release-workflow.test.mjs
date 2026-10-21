@@ -10,18 +10,12 @@ const packageReleasePath = path.resolve(here, "../../tools/package-release.ps1")
 const packageInstallerPath = path.resolve(here, "../../tools/package-installer.ps1");
 const installerDefinitionPath = path.resolve(here, "../../packaging/CodexDreamSkinManager.iss");
 const readmePath = path.resolve(here, "../../README.md");
-const windowsReadmePath = path.resolve(here, "../../windows/README.md");
-const windowsEnglishReadmePath = path.resolve(here, "../../windows/README.en.md");
-const macosReadmePath = path.resolve(here, "../README.md");
 const workflow = await fs.readFile(workflowPath, "utf8");
 const crossPlatformWorkflow = await fs.readFile(crossPlatformWorkflowPath, "utf8");
 const packageRelease = await fs.readFile(packageReleasePath, "utf8");
 const packageInstaller = await fs.readFile(packageInstallerPath, "utf8");
 const installerDefinition = await fs.readFile(installerDefinitionPath, "utf8");
 const readme = await fs.readFile(readmePath, "utf8");
-const windowsReadme = await fs.readFile(windowsReadmePath, "utf8");
-const windowsEnglishReadme = await fs.readFile(windowsEnglishReadmePath, "utf8");
-const macosReadme = await fs.readFile(macosReadmePath, "utf8");
 const repoRoot = path.resolve(here, "../..");
 const releaseVersion = (await fs.readFile(path.join(repoRoot, "windows/VERSION"), "utf8")).trim();
 for (const platform of ["windows", "macos"]) {
@@ -100,6 +94,7 @@ assert.match(
   /OutputBaseFilename=CodexDreamSkinManager-v\{#AppVersion\}-windows-x64-setup/,
 );
 
+// Download names are centralized in the root README for both platforms.
 for (const asset of [
   `CodexDreamSkinManager-v${releaseVersion}-windows-x64-setup.exe`,
   `CodexDreamSkinManager-v${releaseVersion}-windows-x64-portable.zip`,
@@ -109,15 +104,4 @@ for (const asset of [
 ]) {
   assert.ok(readme.includes(asset), `README must name release asset: ${asset}`);
 }
-for (const platformReadme of [windowsReadme, windowsEnglishReadme]) {
-  assert.ok(
-    platformReadme.includes("CodexDreamSkinManager-vX.Y.Z-windows-x64-setup.exe"),
-    "Windows README must name the published installer pattern.",
-  );
-}
-assert.ok(
-  ["x64", "arm64"].every(arch => macosReadme.includes(`CodexDreamSkinManager-vX.Y.Z-macos-${arch}.dmg`)),
-  "macOS README must name the published DMG pattern.",
-);
-
 console.log("PASS: Release workflow binds the event commit and publishes verified Windows and macOS assets.");

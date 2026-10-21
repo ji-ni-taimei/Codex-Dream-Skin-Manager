@@ -13,8 +13,8 @@ const runtimeRoot = isWindowsPackage
   : await fs.stat(path.join(projectRoot, "runtime")).then(() => path.join(projectRoot, "runtime"));
 const runtime = await fs.readFile(path.join(runtimeRoot, "renderer-inject.js"), "utf8");
 const css = await fs.readFile(path.join(runtimeRoot, "dream-skin.css"), "utf8");
-const windowsInjector = await fs.readFile(path.join(windowsRoot, "scripts", "injector.mjs"), "utf8");
-const macosInjector = await fs.readFile(path.join(projectRoot, "macos", "scripts", "injector.mjs"), "utf8").catch(() => windowsInjector);
+const windowsPayload = await fs.readFile(path.join(windowsRoot, "scripts", "theme-payload.mjs"), "utf8");
+const macosPayload = await fs.readFile(path.join(projectRoot, "macos", "scripts", "theme-payload.mjs"), "utf8").catch(() => windowsPayload);
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -25,7 +25,7 @@ for (const [label, source] of [["canonical renderer", runtime], ["canonical CSS"
   assert(source.includes("--dream-art-framing-position"), `${label} is missing the shared framing position variable.`);
   assert(source.includes("--dream-art-background-size"), `${label} is missing the shared framing size variable.`);
 }
-for (const [label, source] of [["Windows injector", windowsInjector], ["macOS injector", macosInjector]]) {
+for (const [label, source] of [["Windows theme payload", windowsPayload], ["macOS theme payload", macosPayload]]) {
   assert(source.includes("positionX"), `${label} does not normalize positionX.`);
   assert(source.includes("positionY"), `${label} does not normalize positionY.`);
   assert(source.includes("positionMode"), `${label} does not normalize positionMode.`);

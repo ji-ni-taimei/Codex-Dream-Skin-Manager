@@ -12,6 +12,7 @@ $imports = '(?m)^\.\s+\(Join-Path \$PSScriptRoot ''(?:common-windows|theme-windo
 if ([regex]::Matches($source, $imports).Count -ne 3) { throw 'Could not isolate startup imports.' }
 $source = [regex]::Replace($source, $imports, '')
 $source = $source.Replace('$Injector = Join-Path $PSScriptRoot ''injector.mjs''', '$Injector = ''mock-injector.mjs''')
+$source = $source.Replace('Split-Path -Parent (Split-Path -Parent $PSScriptRoot)', '''mock-engine-root''')
 $source = $source.Replace('(Split-Path -Parent $PSScriptRoot)', '''mock-skill-root''')
 $source = $source.Replace('$ConfigPath = Join-Path $HOME ''.codex\config.toml''', '$ConfigPath = Join-Path $StateRoot ''fixture-config.toml''')
 # Isolate the selected-theme child and optional animation references too.

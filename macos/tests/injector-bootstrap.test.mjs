@@ -7,7 +7,10 @@ import { cleanupExcludedSurface, earlyPayloadFor } from "../scripts/injector.mjs
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const injectorPath = path.resolve(here, "../scripts/injector.mjs");
-const source = (await Promise.all(["injector.mjs", "renderer-session.mjs", "renderer-verification.mjs"].map(name => fs.readFile(path.join(path.dirname(injectorPath), name), "utf8")))).join("\n");
+const source = (await Promise.all(
+  ["injector.mjs", "injection-engine.mjs", "renderer-session.mjs", "renderer-verification.mjs"]
+    .map(name => fs.readFile(path.join(path.dirname(injectorPath), name), "utf8")),
+)).join("\n");
 const shellSelector = 'main:is(.main-surface, [data-app-shell-main-surface], [class*="_MainContentSurface_"])';
 
 function createFixture() {

@@ -536,7 +536,9 @@ test("zero-size and CSS-hidden shell anchors cannot satisfy L1", async () => {
 test("start cannot announce active after renderer verification exhausts its deadline", async () => {
   const source = await fs.readFile(startPath, "utf8");
   const verifyStart = source.indexOf("$verifyDeadline =");
-  const successBreak = source.indexOf("if ($verify.ExitCode -eq 0) { break }", verifyStart);
+  const successBlock = /if \(\$verify.ExitCode -eq 0\) \{\s*(?:if \(\$ManagerVerification\) \{[^\r\n]*\}\s*)?break\s*\}/
+    .exec(source.slice(verifyStart));
+  const successBreak = successBlock ? verifyStart + successBlock.index : -1;
   const failureThrow = source.indexOf('throw "Dream Skin verification failed.', successBreak);
   const startupCatch = source.indexOf("$startupError = $_", failureThrow);
   const stateCleanup = source.indexOf("Remove-Item -LiteralPath $StatePath", startupCatch);
