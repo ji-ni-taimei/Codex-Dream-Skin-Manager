@@ -35,7 +35,7 @@ try {
   const directory = options.get("--resource-directory"), origin = options.get("--media-origin");
   const resources = directory && origin ? new MediaResources(directory, origin, async message => {
     await new Promise<void>((resolve, reject) => process.stdout.write(JSON.stringify(message) + "\n", "utf8", error => error ? reject(error) : resolve()));
-  }, mediaInspector(root, platform.name)) : undefined;
+  }, mediaInspector(root, platform.name), platform.name === "windows" ? path.join(root, "windows", "assets", "video-posters") : undefined) : undefined;
   const manager = options.get("--mode") === "manager";
   if (manager) await initialize(root);
   const packages = packageValidation(root, platform.name, () => platform.applicationVersion());

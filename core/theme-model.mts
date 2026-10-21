@@ -37,6 +37,7 @@ export function parameters(config: Record<string, unknown>): { stored: ThemePara
     focusX: numeric(art, "focusX", 0, 1), focusY: numeric(art, "focusY", 0, 1),
     positionX: numeric(art, "positionX", -1, 1), positionY: numeric(art, "positionY", -1, 1),
     zoom: numeric(art, "zoom", 1, 2), positionMode: choice(art, "positionMode", ["locked", "free"]),
+    playbackRate: numeric(art, "playbackRate", 0.25, 2),
     framingEnabled: typeof art.framingEnabled === "boolean" ? art.framingEnabled : null,
     safeArea: choice(art, "safeArea", ["auto", "left", "right", "center", "none"]),
     taskMode: choice(art, "taskMode", ["auto", "ambient", "banner", "full", "off"]),
@@ -48,6 +49,7 @@ export function parameters(config: Record<string, unknown>): { stored: ThemePara
     appearance: stored.appearance ?? "auto", focusX: stored.focusX ?? 0.5, focusY: stored.focusY ?? 0.5,
     positionX: framing ? stored.positionX ?? 0 : 0, positionY: framing ? stored.positionY ?? 0 : 0,
     zoom: framing ? stored.zoom ?? 1 : 1, positionMode: framing ? stored.positionMode ?? "locked" : "locked",
+    playbackRate: stored.playbackRate ?? 1,
     framingEnabled: framing, safeArea: stored.safeArea ?? "auto", taskMode: stored.taskMode ?? "auto",
     bubbleOpacity: stored.bubbleOpacity ?? 0, surfaceOpacity: stored.surfaceOpacity ?? 0.3, accent: stored.accent,
   } };
@@ -74,8 +76,8 @@ const mimeTypes: Record<string, string> = {
 export async function themeDetails(local: LocalTheme): Promise<ThemeDetails> {
   return (await readThemeContent(local)).details;
 }
-// Only list summaries may reuse a content revision on unchanged file metadata.
-// Selection, preview and every writer still validate the complete byte set.
+// Metadata stamps invalidate read-only summaries and preview resources.
+// Writers still read an exact content snapshot before publishing.
 export async function themeListStamp(local: LocalTheme): Promise<string> {
   const files = [...local.revisionFiles.map(value => ({ file: value.file, root: value.root })),
     { file: local.mediaPath, root: local.mediaRoot }, ...(local.cssPath ? [{ file: local.cssPath, root: local.mediaRoot }] : [])];
@@ -92,7 +94,7 @@ export async function themeListStamp(local: LocalTheme): Promise<string> {
 }
 // Return the exact media bytes used by the validated revision so preview
 // preparation need not read and validate the same content again.
-export async function readThemeContent(local: LocalTheme): Promise<{ details: ThemeDetails; media: Uint8Array }> {
+export async function readThemeContent(local: LocalTheme): Promise<{ details: ThemeDetails; media: Uint8Array; css: Uint8Array | null }> {
   const config = local.config;
   if (config.schemaVersion !== 1 || config.id !== local.ref.id || !boundedText(config.name, 80)) {
     throw new ContractError("THEME_INVALID", "Invalid theme schema, identity or name.");
@@ -121,7 +123,7 @@ export async function readThemeContent(local: LocalTheme): Promise<{ details: Th
       throw new ContractError("THEME_CHANGED", "The theme dependency set changed during reading.", true);
     }
   }
-  return { media, details: {
+  return { media, css, details: {
     ref: local.ref, name: config.name, storageCategory: category, displayCategories: displayCategories(category, tags, extension), tags,
     mediaKind: extension === ".mp4" ? "video" : [".gif", ".apng"].includes(extension) ? "animatedImage" : "image",
     catalogOrder: local.catalogOrder, addedAt: null, modifiedAt: local.modifiedAt,
@@ -132,4 +134,15 @@ export async function readThemeContent(local: LocalTheme): Promise<{ details: Th
     availability: { apply: { allowed: false, reasonCode: "METHOD_UNSUPPORTED" }, update: { allowed: false, reasonCode: "METHOD_UNSUPPORTED" },
       copy: { allowed: false, reasonCode: "METHOD_UNSUPPORTED" } },
   } };
+}
+
+const observedThemes = new Map<string, { stamp: string; details: ThemeDetails }>();
+export async function observedThemeDetails(local: LocalTheme): Promise<ThemeDetails> {
+  const key = local.mediaPath, stamp = await themeListStamp(local), cached = observedThemes.get(key);
+  if (cached?.stamp === stamp) return structuredClone(cached.details);
+  const details = await themeDetails(local);
+  if (await themeListStamp(local) !== stamp) throw new ContractError("THEME_CHANGED", "The theme changed during observation.", true);
+  if (observedThemes.size >= 128) observedThemes.delete(observedThemes.keys().next().value!);
+  observedThemes.set(key, { stamp, details });
+  return structuredClone(details);
 }

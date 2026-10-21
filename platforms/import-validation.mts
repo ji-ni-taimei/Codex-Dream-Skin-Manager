@@ -13,5 +13,5 @@ export async function validateImportMedia(root: string, file: string): Promise<v
   const executable = windows ? path.join(system!, "System32", "WindowsPowerShell", "v1.0", "powershell.exe") : process.execPath;
   const args = windows ? await powerShellArgs(root, script, ["-MediaPath", file]) : [script, file];
   try { await transactionProcess(executable, args, 120000, false); }
-  catch { throw new ContractError("MEDIA_UNSUPPORTED", "Media validation or real video decoding failed. Video import requires an existing compatible Codex renderer connection."); }
+  catch { throw new ContractError("MEDIA_UNSUPPORTED", "The media file is damaged or exceeds the supported format, dimensions, duration or frame rate limits."); }
 }

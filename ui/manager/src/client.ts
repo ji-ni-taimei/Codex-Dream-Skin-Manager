@@ -48,18 +48,21 @@ export class ManagerClient {
   hello(): Promise<HelloResult> { return this.helloPromise; }
   onEvent(listener: (event: ManagerEvent) => void): () => void { this.events.add(listener); return () => { this.events.delete(listener); }; }
   onDisconnected(listener: () => void): () => void { this.disconnects.add(listener); return () => { this.disconnects.delete(listener); }; }
-  async call<M extends ManagerMethod>(method: M, params: MethodMap[M]["params"]): Promise<MethodMap[M]["result"]> {
+  async call<M extends ManagerMethod>(method: M, params: MethodMap[M]["params"], deadline?: number): Promise<MethodMap[M]["result"]> {
     const hello = await this.helloPromise;
     if (!hello.capabilities.methods.includes(method)) throw new Error("当前管理器尚不支持此功能。");
-    return this.request(method, params);
+    return this.request(method, params, deadline);
   }
-  private request<M extends ManagerMethod>(method: M, params: MethodMap[M]["params"]): Promise<MethodMap[M]["result"]> {
+  private request<M extends ManagerMethod>(method: M, params: MethodMap[M]["params"], deadline?: number): Promise<MethodMap[M]["result"]> {
     if (this.closed) return Promise.reject(new Error("管理器连接已关闭，请重新连接。"));
-    if (this.pending.size >= 16) return Promise.reject(new Error("管理器忙，请稍后重试。"));
+    // Leave one pending slot for the serialized preview-release queue.
+    if (this.pending.size >= (method === "media.release" ? 32 : 31)) return Promise.reject(new BridgeError({ code: "BUSY", message: "管理器忙，请稍后重试。", retryable: true }));
     const requestId = crypto.randomUUID();
+    const timeout = method === "system.hello" ? 180000 : method.startsWith("files.") ? 1200000 : method === "community.download" ? 240000 : method === "updates.check" ? 180000 : method === "community.inspect" ? 90000 : 60000;
     return new Promise((resolve, reject) => {
       const timer = window.setTimeout(() => { this.pending.delete(requestId);
-        reject(new Error("管理器响应超时，请刷新状态；操作不会自动重试。")); }, method === "system.hello" ? 180000 : method.startsWith("files.") ? 1200000 : method === "community.download" ? 240000 : method === "updates.check" ? 180000 : method === "community.inspect" ? 90000 : 60000);
+        const message = "管理器响应超时，请刷新状态；操作不会自动重试。";
+        reject(method === "media.release" ? new BridgeError({ code: "TIMEOUT", message, retryable: true }) : new Error(message)); }, deadline === undefined ? timeout : Math.min(timeout, Math.max(0, deadline - Date.now())));
       this.pending.set(requestId, { resolve: value => resolve(value as MethodMap[M]["result"]), reject, timer });
       try { this.transport.send({ protocol: PROTOCOL, kind: "request", requestId, method, params }); }
       catch { window.clearTimeout(timer); this.pending.delete(requestId); reject(new Error("无法连接本地管理器。")); }

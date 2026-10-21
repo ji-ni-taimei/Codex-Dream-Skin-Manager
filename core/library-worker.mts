@@ -70,8 +70,7 @@ try {
   intentCreated = true;
   if (command.method === "themes.create") {
     const adapter = readAdapter(applicationRoot);
-    await emit(await createTheme(state, command, request.source, adapter, mediaInspector(applicationRoot, adapter.name),
-      file => validateImportMedia(applicationRoot, file), journals));
+    await emit(await createTheme(state, command, request.source, adapter, mediaInspector(applicationRoot, adapter.name), journals));
   } else if (command.method === "themes.importPackage") {
     const adapter = readAdapter(applicationRoot);
     await emit(await importPackage(state, command, request.source, adapter,
@@ -104,7 +103,7 @@ try {
       const old = await optionalBytes(file, state, 16384);
       const previous = old ? jsonObject(old) : {};
       const previousArt = record(previous.art) ? { ...previous.art } : {};
-      for (const key of ["focusX", "focusY", "safeArea", "taskMode", "bubbleOpacity", "surfaceOpacity", "positionX", "positionY", "zoom", "positionMode", "framingEnabled"]) delete previousArt[key];
+      for (const key of ["focusX", "focusY", "safeArea", "taskMode", "bubbleOpacity", "surfaceOpacity", "positionX", "positionY", "zoom", "positionMode", "framingEnabled", "playbackRate"]) delete previousArt[key];
       // Keep the replacement semantics for art, including omissions.
       value = { ...previous, schemaVersion: 1, appearance: config.appearance ?? "auto", art: { ...previousArt, ...(record(config.art) ? config.art : {}) },
         accent: record(config.palette) ? config.palette.accent ?? "" : "" };

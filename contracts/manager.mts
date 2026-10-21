@@ -1,7 +1,7 @@
 // Shared wire types and validation. This module deliberately has no imports.
 export const PROTOCOL = "dreamskin.manager/1";
 export const MAX_MESSAGE_BYTES = 1024 * 1024;
-export const READ_METHODS = ["system.hello", "status.get", "themes.list", "themes.get", "themes.active", "media.activePreview"] as const;
+export const READ_METHODS = ["system.hello", "status.get", "themes.list", "themes.get", "themes.active", "media.activePreview", "media.release"] as const;
 export const SESSION_METHODS = ["events.subscribe", "events.unsubscribe", "session.close"] as const;
 export type ReadMethod = typeof READ_METHODS[number];
 export const MEDIA_METHOD = "media.resolve" as const;
@@ -43,6 +43,7 @@ export interface ThemeParameters {
   positionX: number | null;
   positionY: number | null;
   zoom: number | null;
+  playbackRate: number | null;
   positionMode: "locked" | "free" | null;
   framingEnabled: boolean | null;
   safeArea: "auto" | "left" | "right" | "center" | "none" | null;
@@ -99,7 +100,7 @@ export interface HelloResult {
   versions: { bridge: typeof PROTOCOL; node: string; application: string | null };
   capabilities: { methods: ManagerMethod[] };
 }
-export interface MediaResource { resourceId: string; url: string; mimeType: "image/png"; expiresAt: string }
+export interface MediaResource { resourceId: string; leaseId: string; url: string; mimeType: "image/png"; expiresAt: string }
 export type LanguagePreference = "system" | "zh-CN" | "en-US";
 export type DesktopTarget = "themes" | "images" | "state" | "website" | "gallery" | "studio";
 export interface DesktopInfo { language: LanguagePreference; resolvedLanguage: "zh-CN" | "en-US"; hostVersion: string;
@@ -215,6 +216,7 @@ export interface MethodMap {
   "themes.get": { params: { theme: ThemeRef }; result: ThemeDetails };
   "themes.active": { params: Record<string, never>; result: ThemeDetails | null };
   "media.activePreview": { params: { revision: string }; result: MediaResource };
+  "media.release": { params: { leaseId: string }; result: { released: boolean } };
   "media.resolve": { params: { theme: ThemeRef; revision: string; variant: "thumbnail" | "preview" }; result: MediaResource };
   "skin.apply": { params: { operationId: string; theme: ThemeRef; expectedRevision: string }; result: OperationSnapshot };
   "themes.update": { params: ThemeEditRequest; result: OperationSnapshot };
@@ -269,7 +271,7 @@ export function parseThemePatch(value: unknown): ThemePatch {
     if (!record(value.parameters)) throw new ContractError("INVALID_REQUEST", "Invalid parameter patch.");
     const parameters = value.parameters;
     const ranges: Record<string, readonly [number, number]> = { focusX: [0, 1], focusY: [0, 1], positionX: [-1, 1], positionY: [-1, 1],
-      zoom: [1, 2], bubbleOpacity: [0, 1], surfaceOpacity: [0, 1] };
+      zoom: [1, 2], playbackRate: [0.25, 2], bubbleOpacity: [0, 1], surfaceOpacity: [0, 1] };
     const choices: Record<string, readonly string[]> = { appearance: ["auto", "light", "dark"], positionMode: ["locked", "free"],
       safeArea: ["auto", "left", "right", "center", "none"], taskMode: ["auto", "ambient", "banner", "full", "off"] };
     fields(value.parameters, [...Object.keys(ranges), ...Object.keys(choices), "framingEnabled", "accent"]);
@@ -319,6 +321,10 @@ export function parseRequest(value: unknown): ManagerRequest {
   }
   const params = value.params;
   switch (value.method) {
+    case "media.release":
+      fields(params, ["leaseId"]);
+      if (typeof params.leaseId !== "string" || !/^[a-f0-9]{48}$/.test(params.leaseId)) throw new ContractError("INVALID_REQUEST", "Invalid preview lease.");
+      break;
     case "updates.check":
       fields(params, ["background"]);
       if (typeof params.background !== "boolean") throw new ContractError("INVALID_REQUEST", "Invalid update check.");

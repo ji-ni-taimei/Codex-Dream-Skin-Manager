@@ -16,8 +16,9 @@ export function ThemeDetailsPanel({ client, hello, theme, selectedPreview = null
   const tr = useText();
   const [mediaMenu, setMediaMenu] = useState(false);
   const selectedTheme = theme ?? selectedPreview, shown = selectedTheme ?? activeTheme;
-  const runtimeAllowed = (action: "pause" | "resume" | "reset" | "restore") => !busy && !draftDirty && !!snapshot?.runtime?.revision &&
-    (snapshot.availability[action]?.allowed || action !== "restore" && snapshot.availability[action]?.reasonCode === "BUSY");
+  const runtimeAllowed = (action: "pause" | "resume" | "reset" | "restore") => !busy && (action === "pause"
+    ? !!hello?.capabilities.methods.includes("skin.pause")
+    : !draftDirty && !!snapshot?.runtime?.revision && (snapshot.availability[action]?.allowed || action !== "restore" && snapshot.availability[action]?.reasonCode === "BUSY"));
   if (onEdit) return <section className="inspector dashboard-inspector" aria-label={tr("当前皮肤控制")} tabIndex={hello?.platform === "macos" ? 0 : undefined} onKeyDown={event => {
     if ((event.key === "ContextMenu" || event.shiftKey && event.key === "F10") && hello?.platform === "macos" && theme && theme.mediaKind !== "image" && hello.capabilities.methods.includes("files.playOriginal")) { event.preventDefault(); setMediaMenu(true); }
   }} onContextMenu={event => {

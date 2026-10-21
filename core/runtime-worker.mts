@@ -3,13 +3,12 @@ import path from "node:path";
 import { ContractError, parseRequest, PROTOCOL, record, RUNTIME_METHODS } from "../contracts/manager.mjs";
 import type { RuntimeCommand } from "../contracts/manager.mjs";
 import { runtimePreflight } from "./runtime-preflight.mjs";
-import { engineRevision, runtimeEngine } from "./runtime-engine.mjs";
+import { engineRevision } from "./runtime-engine.mjs";
 import { durableJson, privateDirectory } from "./write-files.mjs";
 import { dataRoot } from "../platforms/factory.mjs";
-import { activeTheme } from "./active-theme.mjs";
-import { appearanceState, runtimeTargets } from "./runtime-targets.mjs";
-import { themeDetails } from "./theme-model.mjs";
-import { fileBytes, jsonObject, MAX_CONFIG_BYTES, optionalBytes, sha256 } from "./local-files.mjs";
+import { appearanceState } from "./runtime-targets.mjs";
+import { captureRuntime } from "./runtime-state.mjs";
+import { fileBytes, jsonObject, sha256 } from "./local-files.mjs";
 
 try {
   const [action, applicationRoot, probeText, requestFile, extra] = process.argv.slice(2);
@@ -65,33 +64,13 @@ try {
     await durableJson(path.join(directory, "engine-session.json"), state, { schemaVersion: 1, pid: current.injectorPid, startedAt: current.injectorStartedAt, injectorPath: current.injectorPath, nodePath: current.nodePath, engineRevision: revision });
     process.stdout.write(JSON.stringify({ runtimeUpgraded: true }) + "\n");
   } else {
-  const targets = await runtimeTargets(applicationRoot, state);
-  const before = await optionalBytes(path.join(state, "state.json"), state);
-  const pause = platform === "windows" ? await optionalBytes(path.join(state, "paused"), state, 16384) : null;
-  const activeDirectory = path.join(state, platform === "windows" ? "active-theme" : "theme");
-  const activeConfig = await optionalBytes(path.join(activeDirectory, "theme.json"), state, MAX_CONFIG_BYTES, 0);
-  let local: Awaited<ReturnType<typeof activeTheme>> = null, details: Awaited<ReturnType<typeof themeDetails>> | null = null;
-  try { local = await activeTheme(state, platform); details = local ? await themeDetails(local) : null; }
-  catch (error) {
-    // A damaged active payload must not prevent reset or selective restore.
-    // Keep its raw config in the runtime identity, and disable active actions.
-    if (!(error instanceof ContractError && ["THEME_INVALID", "THEME_NOT_FOUND"].includes(error.code)) && !(record(error) && error.code === "ENOENT")) throw error;
-    local = null;
-  }
-  const after = await optionalBytes(path.join(state, "state.json"), state);
-  const engine = await runtimeEngine(applicationRoot, state, platform, after, probe.watcherVerified === true);
-  const pauseAfter = platform === "windows" ? await optionalBytes(path.join(state, "paused"), state, 16384) : null;
-  if ((await appearanceState(state)).appearanceRevision !== targets.appearanceRevision) throw new ContractError("RUNTIME_CHANGED", "Appearance inputs changed during observation.");
-  const same = (a: Uint8Array | null, b: Uint8Array | null) => a === null ? b === null : b !== null && Buffer.from(a).equals(b);
-  if (!same(activeConfig, await optionalBytes(path.join(activeDirectory, "theme.json"), state, MAX_CONFIG_BYTES, 0)) || !same(before, after) || !same(pause, pauseAfter) || platform === "windows" && probe.paused !== (pause !== null) || platform === "macos" && probe.paused !== (before !== null && jsonObject(before).session === "paused")) throw new ContractError("RUNTIME_CHANGED", "Runtime state changed while reading; refresh before controlling the skin.");
-  const runtime = { ...probe, ...targets, ...engine, watcherIdentity: before ? watcherIdentity(jsonObject(before)) : null, activeTheme: local?.ref ?? null, activeRevision: details?.revision ?? null,
-    revision: sha256([Buffer.from(JSON.stringify({ fingerprint: probe.fingerprint, paused: probe.paused, active: details?.revision ?? null, activeConfigPresent: activeConfig !== null, statePresent: before !== null, pausePresent: pause !== null, targets, engine })), before ?? new Uint8Array(), pause ?? new Uint8Array(), activeConfig ?? new Uint8Array()]),
-    rendererRemoved: null, rendererUnavailable: probe.processRunning === false && probe.runtimeSessionId === null };
+  const selected = action === "check" ? await descriptor() : null;
+  const runtime = await captureRuntime(applicationRoot, state, platform, probe, selected?.command.method === "skin.pause" ? "pause" : "control");
   if (action === "check") {
-    const { request, command } = await descriptor();
+    const { request, command } = selected!;
     const preflight = runtimePreflight(command, runtime as unknown as import("./ports/runtime.mjs").RuntimeState);
-    if (command.method === "runtime.upgrade" && request.expectedEngineRevision !== engine.engineRevision) throw new ContractError("RUNTIME_CHANGED", "The selected engine package changed.");
-    if (request.preflightFingerprint !== probe.fingerprint || request.appearanceRevision !== targets.appearanceRevision) throw new ContractError("RUNTIME_CHANGED", "The runtime changed after the selected status snapshot.");
+    if (command.method === "runtime.upgrade" && request.expectedEngineRevision !== runtime.engineRevision) throw new ContractError("RUNTIME_CHANGED", "The selected engine package changed.");
+    if (request.preflightFingerprint !== probe.fingerprint || command.method === "skin.restore" && request.appearanceRevision !== runtime.appearanceRevision) throw new ContractError("RUNTIME_CHANGED", "The runtime changed after the selected status snapshot.");
     if (preflight.requiresConfirmation && request.confirmed !== true || command.method !== "skin.pause" && command.method !== "skin.restore" &&
         (request.source !== (command.method === "skin.reset" ? "default" : "active") || request.expectedRevision !== preflight.targetRevision || !record(request.theme) || request.theme.id !== preflight.targetTheme?.id || request.theme.source !== preflight.targetTheme?.source)) throw new ContractError("RUNTIME_UNAVAILABLE", "The runtime target or explicit confirmation is no longer valid.");
   } else if (requestFile) throw new ContractError("INVALID_REQUEST", "Capture does not accept a descriptor.");

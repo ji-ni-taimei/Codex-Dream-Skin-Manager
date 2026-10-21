@@ -81,7 +81,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
             do { try startBackend(); web.reload() } catch { disconnect() }; return
         }
         guard backend != nil, session != nil || request["method"] as? String == "system.hello" else { return }
-        do { if nativeFiles?.handle(request) != true { try backend?.send(request) } } catch { disconnect() }
+        do { if nativeFiles?.handle(request) != true { try backend?.send(request) } }
+        catch HostError.busy {
+            if let id = request["requestId"] as? String {
+                post(["protocol": managerProtocol, "kind": "response", "requestId": id, "ok": false,
+                      "error": ["code": "BUSY", "message": "Manager write queue is busy; try again shortly.", "retryable": true]])
+            }
+        } catch { disconnect() }
     }
     private func receive(_ message: [String: Any]) {
         do {

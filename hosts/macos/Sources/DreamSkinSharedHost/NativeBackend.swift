@@ -1,7 +1,7 @@
 import Foundation
 import Darwin
 
-enum HostError: Error { case invalidResource, disconnected, invalidMessage }
+enum HostError: Error { case invalidResource, disconnected, invalidMessage, busy }
 let managerProtocol = "dreamskin.manager/1"
 let maximumMessageBytes = 1024 * 1024
 
@@ -69,7 +69,7 @@ final class NativeBackend {
         }
     }
     func send(_ message: [String: Any]) throws {
-        let methods = ["system.hello", "status.get", "themes.list", "themes.get", "themes.active", "media.activePreview", "media.resolve", "skin.apply", "skin.pause", "skin.resume", "skin.reset", "skin.restore", "runtime.repair", "runtime.upgrade", "events.subscribe", "events.unsubscribe", "session.close", "operations.list", "operations.get", "operations.confirm", "themes.update", "themes.copy", "sources.preview", "sources.release", "themes.create", "packages.inspect", "packages.preview", "packages.release", "themes.importPackage", "community.inspect", "community.download", "community.import", "community.apply", "updates.check", "updates.install", "updates.get", "maintenance.inspect", "maintenance.prepare", "maintenance.execute", "maintenance.get", "themes.delete", "library.recovery.list", "library.recover"]
+        let methods = ["system.hello", "status.get", "themes.list", "themes.get", "themes.active", "media.activePreview", "media.resolve", "media.release", "skin.apply", "skin.pause", "skin.resume", "skin.reset", "skin.restore", "runtime.repair", "runtime.upgrade", "events.subscribe", "events.unsubscribe", "session.close", "operations.list", "operations.get", "operations.confirm", "themes.update", "themes.copy", "sources.preview", "sources.release", "themes.create", "packages.inspect", "packages.preview", "packages.release", "themes.importPackage", "community.inspect", "community.download", "community.import", "community.apply", "updates.check", "updates.install", "updates.get", "maintenance.inspect", "maintenance.prepare", "maintenance.execute", "maintenance.get", "themes.delete", "library.recovery.list", "library.recover"]
         guard message["protocol"] as? String == managerProtocol, message["kind"] as? String == "request",
               let id = message["requestId"] as? String, matches(id, "\\A[A-Za-z0-9:_-]{1,128}\\z"), !id.hasPrefix("native:"),
               let method = message["method"] as? String, methods.contains(method), message["params"] is [String: Any],
@@ -85,7 +85,9 @@ final class NativeBackend {
         var data = try JSONSerialization.data(withJSONObject: message)
         guard data.count <= maximumMessageBytes else { throw HostError.invalidMessage }; data.append(10)
         lock.lock()
-        if closed || queued >= 16 { lock.unlock(); throw HostError.disconnected }
+        if closed { lock.unlock(); throw HostError.disconnected }
+        // Match the shared manager's 32 pending requests, including 20 thumbnail warmups.
+        if queued >= 32 { lock.unlock(); throw HostError.busy }
         queued += 1; lock.unlock()
         writes.async { [self, data] in
             do { try input.fileHandleForWriting.write(contentsOf: data) } catch { disconnect() }

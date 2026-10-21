@@ -325,7 +325,7 @@ function validateOfficialTheme(value) {
     assertExactKeys(
       art,
       [],
-      ["focusX", "focusY", "bubbleOpacity", "surfaceOpacity", "safeArea", "taskMode", "positionX", "positionY", "zoom", "positionMode", "framingEnabled"],
+      ["focusX", "focusY", "bubbleOpacity", "surfaceOpacity", "safeArea", "taskMode", "positionX", "positionY", "zoom", "positionMode", "framingEnabled", "playbackRate"],
       "theme.json.art",
     );
     for (const key of ["focusX", "focusY"]) {
@@ -343,6 +343,9 @@ function validateOfficialTheme(value) {
       if (art[key] !== undefined && (typeof art[key] !== "number" || !Number.isFinite(art[key]) || art[key] < -1 || art[key] > 1)) {
         fail(`theme.json.art.${key} must be between -1 and 1`);
       }
+    }
+    if (art.playbackRate !== undefined && (typeof art.playbackRate !== "number" || !Number.isFinite(art.playbackRate) || art.playbackRate < 0.25 || art.playbackRate > 2)) {
+      fail("theme.json.art.playbackRate must be between 0.25 and 2");
     }
     if (art.zoom !== undefined && (typeof art.zoom !== "number" || !Number.isFinite(art.zoom) || art.zoom < 1 || art.zoom > 2)) {
       fail("theme.json.art.zoom must be between 1 and 2");

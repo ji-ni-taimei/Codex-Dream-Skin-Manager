@@ -1,30 +1,22 @@
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { ContractError, parseThemeRef, record, RUNTIME_METHODS, validOperationId } from "../contracts/manager.mjs";
+import { ContractError, record, RUNTIME_METHODS, validOperationId } from "../contracts/manager.mjs";
 import { runtimePreflight } from "../core/runtime-preflight.mjs";
 import type { RuntimeCommand } from "../contracts/manager.mjs";
 import type { RuntimeOutcome, RuntimePort, RuntimePreflight, RuntimeState } from "../core/ports/runtime.mjs";
 import { jsonObject, optionalBytes } from "../core/local-files.mjs";
 import { durableJson, privateDirectory } from "../core/write-files.mjs";
 import { runtimePlatformCall } from "./apply.mjs";
+import { captureRuntime } from "../core/runtime-state.mjs";
 
 export class PlatformRuntime implements RuntimePort {
   constructor(private readonly root: string, private readonly state: string) {}
   async inspect(): Promise<RuntimeState> {
-    const value = await runtimePlatformCall(this.root, "RuntimeProbe");
-    const hash = (value: unknown) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
-    if (value.watcherIdentity !== null && !hash(value.watcherIdentity) || value.engineRevision !== null && !hash(value.engineRevision) || value.runningEngineRevision !== null && !hash(value.runningEngineRevision) || typeof value.upgradeRequired !== "boolean" ||
-        !hash(value.revision) || !hash(value.fingerprint) || !hash(value.appearanceRevision) || value.defaultRevision !== null && !hash(value.defaultRevision) || typeof value.restoreAvailable !== "boolean" || value.activeRevision !== null && !hash(value.activeRevision) ||
-        value.runtimeSessionId !== null && !hash(value.runtimeSessionId) || ["paused", "startRequired", "recoveryRequired", "processRunning", "rendererUnavailable"].some(key => typeof value[key] !== "boolean") ||
-        ![true, false, null].includes(value.rendererRemoved as boolean | null)) throw new ContractError("BACKEND_UNAVAILABLE", "Invalid runtime state response.");
-    if (value.activeTheme !== null) parseThemeRef(value.activeTheme);
-    if (value.defaultTheme !== null) parseThemeRef(value.defaultTheme);
-    if ((value.defaultTheme === null) !== (value.defaultRevision === null)) throw new ContractError("BACKEND_UNAVAILABLE", "Invalid default runtime theme.");
-    if ((value.activeTheme === null) !== (value.activeRevision === null) || value.rendererRemoved === true && (!value.paused || !value.runtimeSessionId)) throw new ContractError("BACKEND_UNAVAILABLE", "Inconsistent runtime state response.");
-    return value as unknown as RuntimeState;
+    return captureRuntime(this.root, this.state, process.platform === "win32" ? "windows" : "macos", await runtimePlatformCall(this.root, "Probe"), "observe");
   }
   async preflight(command: RuntimeCommand): Promise<RuntimePreflight> {
-    return runtimePreflight(command, await this.inspect());
+    const runtime = command.method === "skin.pause" ? await captureRuntime(this.root, this.state, process.platform === "win32" ? "windows" : "macos", await runtimePlatformCall(this.root, "Probe"), "pause") : await this.inspect();
+    return runtimePreflight(command, runtime);
   }
   private receiptFile(id: string) {
     if (!validOperationId(id)) throw new ContractError("INVALID_REQUEST", "Invalid runtime receipt identity.");

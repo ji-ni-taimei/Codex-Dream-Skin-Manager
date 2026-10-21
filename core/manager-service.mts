@@ -202,6 +202,8 @@ export class ManagerService {
         const active = this.stateRoot ? await activeTheme(this.stateRoot, this.platform.name) : null;
         return active ? themeDetails(active) : null;
       }
+      case "media.release":
+        return this.resources?.release(request.params.leaseId, this.sessionId) ?? { released: false };
       case "media.activePreview": {
         if (!this.resources || !this.stateRoot) throw new ContractError("METHOD_UNSUPPORTED", "Active previews are unavailable.");
         const active = await activeTheme(this.stateRoot, this.platform.name);
@@ -236,7 +238,7 @@ export class ManagerService {
   private async hello(): Promise<HelloResult> {
     return { backendSessionId: this.sessionId, platform: this.platform.name,
       versions: { bridge: PROTOCOL, node: process.versions.node, application: await this.platform.applicationVersion() },
-      capabilities: { methods: [...READ_METHODS.filter(method => method === "themes.active" ? !!this.stateRoot : method === "media.activePreview" ? !!this.stateRoot && !!this.resources : true), ...SESSION_METHODS, ...(this.resources ? ["media.resolve" as const] : []), ...(this.operations ? OPERATION_METHODS : []),
+      capabilities: { methods: [...READ_METHODS.filter(method => method === "themes.active" ? !!this.stateRoot : method === "media.activePreview" ? !!this.stateRoot && !!this.resources : method === "media.release" ? !!this.resources : true), ...SESSION_METHODS, ...(this.resources ? ["media.resolve" as const] : []), ...(this.operations ? OPERATION_METHODS : []),
         ...(this.operations && this.runtimePort ? RUNTIME_METHODS : []),
         ...(this.operations && this.library ? [...LIBRARY_METHODS, ...RECOVERY_METHODS] : []), ...(this.sources && this.nativeFiles && this.resources && this.operations && this.library ? SOURCE_METHODS : []),
         ...(this.packages && this.packageValidation && this.nativeFiles && this.resources && this.operations && this.library ? PACKAGE_METHODS : []),
