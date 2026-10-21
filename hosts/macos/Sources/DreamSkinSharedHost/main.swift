@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKSc
             else if arguments.count == 2, arguments[0] == "--application-root", arguments[1].hasPrefix("/") { root = URL(fileURLWithPath: arguments[1]).standardizedFileURL }
             else { throw HostError.invalidResource }
             page = root.appendingPathComponent("ui/manager/index.html"); try safeFile(page, within: root)
-            temporary = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("DreamSkin-manager-" + UUID().uuidString, isDirectory: true)
+            temporary = try canonicalFileURL(FileManager.default.temporaryDirectory).appendingPathComponent("DreamSkin-manager-" + UUID().uuidString, isDirectory: true)
             let directory = temporary.appendingPathComponent("media", isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             media = MediaResources(directory: directory)

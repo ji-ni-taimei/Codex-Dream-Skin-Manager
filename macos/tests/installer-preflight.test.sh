@@ -52,7 +52,7 @@ fi
 # must not emit an unbound-variable error or replace the previous engine.
 if /usr/bin/env -u CODEX_EXE -u CODEX_BUNDLE \
   HOME="$TEST_HOME" CODEX_APP_BUNDLE="$FAKE_APP" \
-  "$ROOT/scripts/install-dream-skin-macos.sh" --no-launchers --no-launch \
+  "$ROOT/scripts/install-dream-skin-macos.sh" --no-launch \
   >"$OUTPUT" 2>&1; then
   printf 'Unsigned fixture unexpectedly completed engine installation.\n' >&2
   exit 1
@@ -81,7 +81,7 @@ done
 /bin/chmod 500 "$TEST_HOME/.codex"
 if /usr/bin/env -u CODEX_EXE -u CODEX_BUNDLE \
   HOME="$TEST_HOME" CODEX_APP_BUNDLE="$FAKE_APP" \
-  "$ROOT/scripts/install-dream-skin-macos.sh" --no-launchers --no-launch \
+  "$ROOT/scripts/install-dream-skin-macos.sh" --no-launch \
   >"$OUTPUT" 2>&1; then
   printf 'Installer continued while the discovered app executable was running.\n' >&2
   exit 1

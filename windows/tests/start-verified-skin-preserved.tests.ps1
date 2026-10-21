@@ -23,6 +23,7 @@ $rawSource = $rawSource.Replace(
   '$Injector = Join-Path $PSScriptRoot ''injector.mjs''',
   '$Injector = ''mock-injector.mjs'''
 )
+$rawSource = $rawSource.Replace('Split-Path -Parent (Split-Path -Parent $PSScriptRoot)', '''mock-engine-root''')
 $rawSource = $rawSource.Replace(
   '(Split-Path -Parent $PSScriptRoot)',
   '''mock-skill-root'''

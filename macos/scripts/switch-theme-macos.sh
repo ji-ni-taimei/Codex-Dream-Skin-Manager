@@ -161,7 +161,11 @@ case "$THEME_IMAGE" in
 esac
 [ "$THEME_BYTES" -gt 0 ] && [ "$THEME_BYTES" -le "$MAX_THEME_BYTES" ] \
   || fail "Theme media must be non-empty and no larger than $MAX_THEME_LABEL."
-"$NODE" "$SCRIPT_DIR/validate-video-file.mjs" "$stage/$THEME_IMAGE" "$STATE_PATH" >/dev/null
+# Staging must also work before Codex exposes CDP. The injector checks video
+# decoding after the manager establishes the renderer connection.
+if [ "$APPLY_NOW" = "true" ]; then
+  "$NODE" "$SCRIPT_DIR/validate-video-file.mjs" "$stage/$THEME_IMAGE" "$STATE_PATH" >/dev/null
+fi
 SAFE_CSS_NAME=""
 [ ! -f "$stage/theme.css" ] || SAFE_CSS_NAME="theme.css"
 /bin/chmod 600 "$stage/"*

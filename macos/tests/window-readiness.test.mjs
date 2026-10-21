@@ -285,6 +285,7 @@ esac
 exit 0
 `, { mode: 0o700 });
   await fs.writeFile(mockCommon, `#!/bin/bash
+SCRIPT_DIR="$FIXTURE_ROOT/scripts"
 CODEX_BUNDLE="/Applications/ChatGPT.app"
 SKIN_VERSION="test-version"
 STATE_ROOT="$FIXTURE_ROOT/state"
@@ -298,6 +299,7 @@ OPERATION_ACK_PATH="$STATE_ROOT/operation-ack.json"
 THEME_DIR="$FIXTURE_ROOT/theme"
 INJECTOR="$FIXTURE_ROOT/injector.mjs"
 NODE="$NODE_MOCK"
+dreamskin_text() { /usr/bin/printf '%s\\n' "$1"; }
 fail() { /usr/bin/printf '%s\\n' "$*" >&2; exit 1; }
 ensure_state_root() { /bin/mkdir -p "$STATE_ROOT" "$THEME_DIR"; }
 new_operation_token() { /usr/bin/printf '123:1234567890123:1\\n'; }

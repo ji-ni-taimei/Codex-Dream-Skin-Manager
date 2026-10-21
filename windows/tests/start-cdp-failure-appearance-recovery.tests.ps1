@@ -15,6 +15,7 @@ $source = $source.Replace(
   '$Injector = Join-Path $PSScriptRoot ''injector.mjs''',
   '$Injector = ''mock-injector.mjs'''
 )
+$source = $source.Replace('Split-Path -Parent (Split-Path -Parent $PSScriptRoot)', '''mock-engine-root''')
 $source = $source.Replace('(Split-Path -Parent $PSScriptRoot)', '''mock-skill-root''')
 $source = $source.Replace('$ConfigPath = Join-Path $HOME ''.codex\config.toml''',
   '$ConfigPath = Join-Path $StateRoot ''fixture-config.toml''')
