@@ -16,9 +16,10 @@ export const DESKTOP_METHODS = ["desktop.get", "desktop.open", "desktop.language
 export const MAINTENANCE_METHODS = ["maintenance.inspect", "maintenance.prepare", "maintenance.execute", "maintenance.get"] as const;
 export const RECOVERY_METHODS = ["themes.delete", "library.recovery.list", "library.recover"] as const;
 export const RUNTIME_METHODS = ["skin.pause", "skin.resume", "skin.reset", "skin.restore", "runtime.repair", "runtime.upgrade"] as const;
+export const STARTUP_METHODS = ["startup.get", "startup.update"] as const;
 export type RuntimeMethod = typeof RUNTIME_METHODS[number];
 export type RuntimeCommand = { method: RuntimeMethod; params: { operationId: string; expectedRuntimeRevision: string } };
-export type ManagerMethod = ReadMethod | typeof SESSION_METHODS[number] | typeof MEDIA_METHOD | typeof OPERATION_METHODS[number] | ThemeEditMethod | typeof SOURCE_METHODS[number] | typeof PACKAGE_METHODS[number] | typeof COMMUNITY_METHODS[number] | typeof UPDATE_METHODS[number] | typeof DESKTOP_METHODS[number] | typeof MAINTENANCE_METHODS[number] | typeof RECOVERY_METHODS[number] | RuntimeMethod;
+export type ManagerMethod = ReadMethod | typeof SESSION_METHODS[number] | typeof MEDIA_METHOD | typeof OPERATION_METHODS[number] | ThemeEditMethod | typeof SOURCE_METHODS[number] | typeof PACKAGE_METHODS[number] | typeof COMMUNITY_METHODS[number] | typeof UPDATE_METHODS[number] | typeof DESKTOP_METHODS[number] | typeof MAINTENANCE_METHODS[number] | typeof RECOVERY_METHODS[number] | RuntimeMethod | typeof STARTUP_METHODS[number];
 export const ERROR_CODES = [
   "PROTOCOL_UNSUPPORTED", "INVALID_REQUEST", "METHOD_UNSUPPORTED", "BACKEND_UNAVAILABLE",
   "THEME_NOT_FOUND", "THEME_INVALID", "THEME_CHANGED", "CATALOG_CHANGED", "MEDIA_UNSUPPORTED",
@@ -35,6 +36,8 @@ export class ContractError extends Error {
   }
 }
 export interface ThemeRef { source: "preset" | "saved"; id: string }
+export interface StartupAnimationSettings { enabled: boolean; theme: ThemeRef | null; themeName: string | null }
+export interface StartupAnimationUpdate { enabled?: boolean; theme?: ThemeRef | null; expectedRevision?: string }
 export interface Diagnostic { code: string; message: string }
 export interface ThemeParameters {
   appearance: "auto" | "light" | "dark" | null;
@@ -181,6 +184,8 @@ export interface OperationPage { revision: string; operations: OperationSnapshot
 export type ManagerEvent = { protocol: typeof PROTOCOL; kind: "event"; backendSessionId: string; sequence: number } & (
   { event: "status.changed"; snapshot: ManagerSnapshot } | { event: "operation.changed"; operation: OperationSnapshot } | { event: "status.invalidated" } | { event: "session.closing" });
 export interface MethodMap {
+  "startup.get": { params: Record<string, never>; result: StartupAnimationSettings };
+  "startup.update": { params: StartupAnimationUpdate; result: StartupAnimationSettings };
   "desktop.get": { params: Record<string, never>; result: DesktopInfo };
   "desktop.intents": { params: Record<string, never>; result: { intents: DesktopIntent[] } };
   "desktop.open": { params: { target: DesktopTarget }; result: { opened: boolean } };
@@ -316,11 +321,21 @@ export function parseRequest(value: unknown): ManagerRequest {
   if (value.kind !== "request" || responseId(value) === null || !boundedText(value.method, 80) || !record(value.params)) {
     throw new ContractError("INVALID_REQUEST", "Invalid request envelope.");
   }
-  if (!([...READ_METHODS, ...SESSION_METHODS, MEDIA_METHOD, ...OPERATION_METHODS, ...LIBRARY_METHODS, ...SOURCE_METHODS, ...PACKAGE_METHODS, ...COMMUNITY_METHODS, ...UPDATE_METHODS, ...DESKTOP_METHODS, ...MAINTENANCE_METHODS, ...RECOVERY_METHODS, ...RUNTIME_METHODS] as readonly string[]).includes(value.method)) {
+  if (!([...READ_METHODS, ...SESSION_METHODS, MEDIA_METHOD, ...OPERATION_METHODS, ...LIBRARY_METHODS, ...SOURCE_METHODS, ...PACKAGE_METHODS, ...COMMUNITY_METHODS, ...UPDATE_METHODS, ...DESKTOP_METHODS, ...MAINTENANCE_METHODS, ...RECOVERY_METHODS, ...RUNTIME_METHODS, ...STARTUP_METHODS] as readonly string[]).includes(value.method)) {
     throw new ContractError("METHOD_UNSUPPORTED", "This method is not implemented by this backend.");
   }
   const params = value.params;
   switch (value.method) {
+    case "startup.get": fields(params, []); break;
+    case "startup.update":
+      fields(params, ["enabled", "theme", "expectedRevision"]);
+      if ((!Object.hasOwn(params, "enabled") && !Object.hasOwn(params, "theme")) ||
+          (Object.hasOwn(params, "enabled") && typeof params.enabled !== "boolean")) throw new ContractError("INVALID_REQUEST", "Invalid startup animation settings.");
+      if (Object.hasOwn(params, "theme") && params.theme !== null) {
+        parseThemeRef(params.theme);
+        if (typeof params.expectedRevision !== "string" || !/^[a-f0-9]{64}$/.test(params.expectedRevision)) throw new ContractError("INVALID_REQUEST", "A saved video theme revision is required.");
+      } else if (Object.hasOwn(params, "expectedRevision")) throw new ContractError("INVALID_REQUEST", "A video theme is required for its revision.");
+      break;
     case "media.release":
       fields(params, ["leaseId"]);
       if (typeof params.leaseId !== "string" || !/^[a-f0-9]{48}$/.test(params.leaseId)) throw new ContractError("INVALID_REQUEST", "Invalid preview lease.");

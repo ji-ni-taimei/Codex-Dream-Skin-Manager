@@ -16,7 +16,6 @@
         "scripts/manager-trash.ps1",
         "scripts/manager-updates.ps1",
         "scripts/manager-validate-media.ps1",
-        "scripts/play-startup-animation.mjs",
         "scripts/restore-dream-skin.ps1",
         "scripts/runtime-version.ps1",
         "scripts/start-dream-skin.ps1",

@@ -2,8 +2,10 @@
 export function installRenderer(payload, mount) {
   if(window.top!==window)return {installed:false,reason:'child-frame'};
   const wallpaperEnabled=payload.wallpaperEnabled!==false;
+  const customizationEnabled=payload.customizationEnabled!==false;
   if(window.__aemeathExtension){
-    if(window.__aemeathExtension.status().wallpaperEnabled===wallpaperEnabled)return {installed:true,alreadyActive:true};
+    const current=window.__aemeathExtension.status();
+    if(current.wallpaperEnabled===wallpaperEnabled&&current.customizationEnabled===customizationEnabled)return {installed:true,alreadyActive:true};
     window.__aemeathExtension.dispose();
   }
   let frame=null,watchdog=0,observer=null,priorFocus=null,disposed=false;
@@ -45,7 +47,7 @@ export function installRenderer(payload, mount) {
     root.toggleAttribute('data-aemeath-skin',strength>0);
   }
   function show(settings=false){
-    if(disposed||frame)return;
+    if(disposed||frame||settings&&!customizationEnabled)return;
     priorFocus=document.activeElement;phase=settings?'settings':'loading';ready=false;completed=false;
     frame=document.createElement('iframe');frame.id='aemeath-extension-overlay';frame.title='启动动画';
     Object.assign(frame.style,{position:'fixed',inset:'0',width:'100%',height:'100%',border:'0',zIndex:'2147483646',background:'transparent',colorScheme:'dark'});
@@ -64,6 +66,7 @@ export function installRenderer(payload, mount) {
           doc.querySelector('.settings-description').textContent='自定义启动动画的图片和文字；播放结束后保留现有 Codex 背景。';
         }
         win.AEMEATH_EXTERNAL=true;win.AEMEATH_ASSETS=payload.assets;win.AEMEATH_OPEN_SETTINGS=settings;
+        win.AEMEATH_CUSTOMIZATION_ENABLED=customizationEnabled;
         // The function is compiled in the parent realm. A closure-bound bridge
         // preserves frame identity without weakening postMessage source checks.
         win.AEMEATH_SEND=data=>message({source:win,data});
@@ -85,10 +88,10 @@ export function installRenderer(payload, mount) {
     if(data.action==='restore')dispose();
   }
   function keyboard(event){
-    if((event.metaKey||event.ctrlKey)&&event.altKey&&event.code==='KeyB'){event.preventDefault();show(true);}
+    if(customizationEnabled&&(event.metaKey||event.ctrlKey)&&event.altKey&&event.code==='KeyB'){event.preventDefault();show(true);}
   }
   window.addEventListener('message',message);window.addEventListener('keydown',keyboard,true);
-  window.__aemeathExtension={dispose,replay:()=>show(),openSettings:()=>show(true),status:()=>({ready,completed,phase,overlay:!!frame,wallpaperEnabled,wallpaper:root.hasAttribute('data-aemeath-skin'),imageBytes:root.style.getPropertyValue('--aemeath-wallpaper').length})};
+  window.__aemeathExtension={dispose,replay:()=>show(),openSettings:()=>show(true),status:()=>({ready,completed,phase,overlay:!!frame,wallpaperEnabled,customizationEnabled,wallpaper:root.hasAttribute('data-aemeath-skin'),imageBytes:root.style.getPropertyValue('--aemeath-wallpaper').length})};
   if(document.body)show();
   else{observer=new MutationObserver(()=>{if(document.body){observer.disconnect();observer=null;show();}});observer.observe(document,{childList:true,subtree:true});}
   return {installed:true};

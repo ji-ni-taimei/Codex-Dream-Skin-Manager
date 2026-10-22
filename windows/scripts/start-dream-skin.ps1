@@ -823,14 +823,13 @@ try {
   # Play only after this invocation actually launched Codex and committed a
   # verified skin. Reconnecting a watcher or switching themes stays immediate.
   # Animation is optional presentation; failure must never roll back the skin.
-  if ($launchedWithCdp -and -not $ManagerApplicationRoot) {
-    $animationScript = Join-Path $PSScriptRoot 'play-startup-animation.mjs'
+  if ($launchedWithCdp) {
+    $animationScript = Join-Path $engineRoot 'shared\core\startup-animation-worker.mjs'
     $animationLog = Join-Path $StateRoot 'startup-animation.log'
     if (Test-Path -LiteralPath $animationScript -PathType Leaf) {
       try {
         $animation = Invoke-DreamSkinNative -FilePath $node.Path -ArgumentList @(
-          $animationScript, '--port', "$Port", '--browser-id', $cdpIdentity.BrowserId,
-          '--theme-dir', $themePaths.Active, '--timeout-ms', '8000')
+          $animationScript, $engineRoot, "$Port")
         Write-DreamSkinUtf8FileAtomically -Path $animationLog -Content (
           ($animation.Output -join "`r`n") + "`r`n")
         if ($animation.ExitCode -ne 0) {

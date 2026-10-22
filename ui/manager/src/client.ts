@@ -41,6 +41,7 @@ export class ManagerClient {
   private readonly events = new Set<(event: ManagerEvent) => void>();
   private readonly disconnects = new Set<() => void>();
   private readonly helloPromise: Promise<HelloResult>;
+  private statusRequest: Promise<MethodMap["status.get"]["result"]> | null = null;
   constructor() {
     this.unlisten = this.transport.listen(message => this.receive(message));
     this.helloPromise = this.request("system.hello", {}).then(value => { this.session = value.backendSessionId; return value; });
@@ -51,6 +52,11 @@ export class ManagerClient {
   async call<M extends ManagerMethod>(method: M, params: MethodMap[M]["params"], deadline?: number): Promise<MethodMap[M]["result"]> {
     const hello = await this.helloPromise;
     if (!hello.capabilities.methods.includes(method)) throw new Error("当前管理器尚不支持此功能。");
+    // Focus refreshes and command preflights share the backend's single status probe.
+    if (method === "status.get") {
+      this.statusRequest ??= this.request("status.get", {}, deadline).finally(() => { this.statusRequest = null; });
+      return this.statusRequest as Promise<MethodMap[M]["result"]>;
+    }
     return this.request(method, params, deadline);
   }
   private request<M extends ManagerMethod>(method: M, params: MethodMap[M]["params"], deadline?: number): Promise<MethodMap[M]["result"]> {

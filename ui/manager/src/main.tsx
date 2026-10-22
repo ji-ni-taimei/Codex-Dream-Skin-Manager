@@ -365,13 +365,29 @@ function App() {
   async function controlRuntime(method: RuntimeMethod) {
     if (!client || !hello || method !== "skin.pause" && (!snapshot?.runtime?.revision || draftDirty) || updateBusy || maintenanceBusy || operationBusy || fileBusy || importBusy || pendingOperation(operation)) return;
     // Pause is bound to the live connection by the backend, not a status snapshot.
-    const id = `${hello.backendSessionId}:${crypto.randomUUID()}`, expectedRuntimeRevision = snapshot?.runtime?.revision ?? "0".repeat(64);
+    const id = `${hello.backendSessionId}:${crypto.randomUUID()}`;
+    let expectedRuntimeRevision = snapshot?.runtime?.revision ?? "0".repeat(64), submitted = false;
     setOperationBusy(true); setOperationError("");
     try {
+      if (method === "runtime.upgrade") {
+        const current = await client.call("status.get", {});
+        setSnapshot(previous => !previous || previous.backendSessionId !== current.backendSessionId || previous.sequence <= current.sequence ? current : previous);
+        if (!current.runtime?.revision) throw new UiMessageError(uiMessage("运行状态暂不可用，请刷新后重试。"));
+        if (!current.runtime.upgradeRequired) { setFeedback(uiMessage("当前未检测到需要升级的皮肤运行时。")); return; }
+        if (!current.availability.upgrade?.allowed) throw new UiMessageError(uiMessage("当前无法升级皮肤运行时，请核对运行状态。"));
+        expectedRuntimeRevision = current.runtime.revision;
+      }
       sessionStorage.setItem(storageKey, id); setOperationId(null); setOperation(null);
+      submitted = true;
       setOperation(await client.call(method, { operationId: id, expectedRuntimeRevision }));
-    } catch (error) { if (mounted.current) setOperationError(message(error)); }
-    finally { if (mounted.current) { setOperationId(id); setOperationBusy(false); } }
+    } catch (error) {
+      if (submitted && error instanceof BridgeError) { submitted = false; sessionStorage.removeItem(storageKey); }
+      if (error instanceof BridgeError && error.detail.code === "RUNTIME_CHANGED") {
+        await refreshRuntime();
+        if (mounted.current) setOperationError(uiMessage("运行状态已变化，请核对刷新后的状态再操作。"));
+      } else if (mounted.current) setOperationError(message(error));
+    }
+    finally { if (mounted.current) { if (submitted) setOperationId(id); setOperationBusy(false); } }
   }
   async function deleteSelected() {
     if (!client || !hello || !details || updateBusy || maintenanceBusy || operationBusy || importBusy || fileBusy || draftDirty || pendingOperation(operation)) return;

@@ -6,6 +6,7 @@ import { ManagerClient } from "./client";
 import { MediaPreview } from "./MediaPreview";
 import { previewParameters } from "./preview-model";
 import { ConfirmationDialog } from "./ConfirmationDialog";
+import { StartupAnimationControls } from "./StartupAnimationControls";
 
 export function ThemeDetailsPanel({ client, hello, theme, selectedPreview = null, activeTheme = null, snapshot, loading, visible, busy, draftDirty, canApply, onApply, onOriginal, onEdit, onControl, onRefresh, children }: {
   client: ManagerClient | null; hello: HelloResult | null; theme: ThemeDetails | null; loading: boolean; visible: boolean;
@@ -38,6 +39,7 @@ export function ThemeDetailsPanel({ client, hello, theme, selectedPreview = null
         <button disabled={busy || !hello} onClick={onRefresh}>{tr("刷新")}</button>
         <button className="danger" disabled={!runtimeAllowed("restore")} onClick={() => onControl?.("skin.restore")}>{tr("恢复原貌")}</button>
       </div>
+      {client && hello?.capabilities.methods.includes("startup.update") && <StartupAnimationControls client={client} theme={theme} busy={busy} />}
       {mediaMenu && <ConfirmationDialog title={tr("原始素材")} onCancel={() => setMediaMenu(false)}><button disabled={busy} onClick={() => { setMediaMenu(false); onOriginal("files.playOriginal"); }}>{tr("打开原始素材")}</button><button onClick={() => setMediaMenu(false)}>{tr("关闭")}</button></ConfirmationDialog>}
     </div>
   </section>;

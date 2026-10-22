@@ -80,7 +80,7 @@ async function prepare(platform) {
     const bytes = await readResource(source);
     if (inputs.has(source) && !inputs.get(source).equals(bytes)) throw new Error(`Resource source changed: ${source}`);
     inputs.set(source, bytes);
-    return bytes.toString(encoding);
+    return encoding ? bytes.toString(encoding) : bytes;
   });
   for (const output of generated) {
     const targets = output.paths.filter((target) => target.startsWith(platform + "/"));

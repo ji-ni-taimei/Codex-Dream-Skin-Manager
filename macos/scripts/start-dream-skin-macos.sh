@@ -155,6 +155,7 @@ if [ -f "$STATE_PATH" ]; then
 fi
 
 INJECTOR_PID=""
+LAUNCHED_CODEX="false"
 if [ "$DEBUG_READY" = "false" ]; then
   # Codex is closed on this path (never started, or stopped just above), so it
   # is safe to sync the appearanceTheme pin to the staged theme before launch.
@@ -164,6 +165,7 @@ if [ "$DEBUG_READY" = "false" ]; then
   PORT="$(select_available_port "$PORT")"
   printf 'Launching ChatGPT with skin debug port %s…\n' "$PORT" >&2
   launch_codex_with_cdp "$PORT"
+  LAUNCHED_CODEX="true"
   # Start probing immediately instead of waiting for the native window to finish loading.
   if [ "$FOREGROUND_INJECTOR" != "true" ]; then
     INJECTOR_PID="$(launch_injector_daemon "$PORT")"
@@ -245,4 +247,8 @@ fi
 write_operation_state success "$(dreamskin_text skin_applied)" "$OPERATION_TOKEN" \
   || fail "Could not publish the completed apply state."
 OPERATION_FINISHED="true"
+if [ "$LAUNCHED_CODEX" = "true" ] && [ -f "$ENGINE_ROOT/shared/core/startup-animation-worker.mjs" ]; then
+  "$NODE" "$ENGINE_ROOT/shared/core/startup-animation-worker.mjs" "$ENGINE_ROOT" "$PORT" >"$STATE_ROOT/startup-animation.log" 2>&1 \
+    || printf 'Warning: startup animation could not start; the applied skin is unchanged.\n' >&2
+fi
 printf 'ChatGPT Dream Skin %s is active on loopback port %s.\n' "$SKIN_VERSION" "$PORT"

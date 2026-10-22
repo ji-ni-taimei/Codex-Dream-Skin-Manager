@@ -1,11 +1,11 @@
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {installRenderer} from './renderer.mjs';
-export async function buildInjection(root,{wallpaperEnabled=true}={}){
+export async function buildInjection(root,{wallpaperEnabled=true,customizationEnabled=true}={}){
   const [html,css,skin,settings,contours,animation,avatar,artwork]=await Promise.all([
     'index.html','style.css','extension/wallpaper.css','image-settings.js','assets/contours.js','animation.js','assets/avatar.jpg','assets/artwork.jpg'
   ].map(name=>readFile(join(root,name))));
-  const payload={wallpaperEnabled,html:html.toString().replace(/<!doctype[^>]*>/ig,'').replace(/<html[^>]*>|<\/html>/ig,'')
+  const payload={wallpaperEnabled,customizationEnabled,html:html.toString().replace(/<!doctype[^>]*>/ig,'').replace(/<html[^>]*>|<\/html>/ig,'')
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/ig,'').replace(/<link\b[^>]*>/ig,'')
     .replace(/<meta\b[^>]*http-equiv[^>]*>/ig,'').replace(/src="assets\/[^"]*"/g,'src=""'),
     css:css.toString(),skin:skin.toString(),assets:{avatar:'data:image/jpeg;base64,'+avatar.toString('base64'),artwork:'data:image/jpeg;base64,'+artwork.toString('base64')}};
