@@ -6,6 +6,7 @@
   const native = !window.AEMEATH_EXTERNAL && Boolean(window.webkit?.messageHandlers?.launcher);
   const embedded = window.parent!==window && (window.AEMEATH_EXTERNAL || new URLSearchParams(location.search).has('embedded'));
   const assets=window.AEMEATH_ASSETS||{artwork:'assets/artwork.jpg',avatar:'assets/avatar.jpg'};
+  const customizationEnabled=window.AEMEATH_CUSTOMIZATION_ENABLED!==false;
   if(embedded)document.body.classList.add('embedded');
   const root = $('.window'), art = $('.artwork'), scene = $('.scene');
   const hud = $('.hud'), intro = $('.intro'), sweep = $('.light-sweep');
@@ -281,7 +282,7 @@
   $('.skip').addEventListener('click',()=>finish(true));
   slider.addEventListener('input',()=>{hiddenPause=false;stop();elapsed=Number(slider.value)*1000;warmIdentityTexture();if(elapsed>=duration){finish();return;}lastUI=-Infinity;completed=false;root.classList.remove('finished');root.dataset.completed='false';pause.disabled=false;render(elapsed);});
   window.addEventListener('keydown',event=>{
-    if((event.metaKey||event.ctrlKey)&&event.altKey&&event.code==='KeyB'){
+    if(customizationEnabled&&(event.metaKey||event.ctrlKey)&&event.altKey&&event.code==='KeyB'){
       event.preventDefault();if(!$('#settings-dialog').open)openSettings();return;
     }
     if($('#settings-dialog').open)return;
@@ -303,7 +304,7 @@
   if(native){
     document.body.classList.add('native');
   }
-  function ready(){if(loaded)return;loaded=true;render(0);send('ready');if(window.AEMEATH_OPEN_SETTINGS||new URLSearchParams(location.search).has('settings'))openSettings();else play();}
+  function ready(){if(loaded)return;loaded=true;render(0);send('ready');if(customizationEnabled&&(window.AEMEATH_OPEN_SETTINGS||new URLSearchParams(location.search).has('settings')))openSettings();else play();}
   function failed(){stop();$('#asset-error').hidden=false;send('assetError');}
   let savedImages={},pendingImages={},busy=false;
   const settings=$('#settings-dialog'),status=$('#settings-status');
@@ -321,7 +322,7 @@
     for(const field of textFields)$(field.input).value=textValue(pendingImages,field);
   }
   function openSettings(){
-    if(mode==='launch'||settings.open)return;
+    if(!customizationEnabled||mode==='launch'||settings.open)return;
     hiddenPause=false;stop();pendingImages={...savedImages};thumbnails();
     status.textContent='图片与文字保存在本机。修改后点击「保存并预览」；关闭则放弃本次修改。';
     settings.returnValue='';settings.showModal();send('settings-open');
@@ -348,6 +349,7 @@
     $('#wallpaper-value').textContent=event.target.value+'%';
   });
   $('#image-settings').addEventListener('click',openSettings);
+  $('#image-settings').hidden=!customizationEnabled;
   if(window.AEMEATH_EXTERNAL){$('#restore-appearance').hidden=false;$('#restore-appearance').addEventListener('click',()=>send('restore'));}
   settings.addEventListener('cancel',event=>{if(busy)event.preventDefault();});
   settings.addEventListener('close',()=>{
@@ -374,7 +376,7 @@
     }catch(error){await applyImages(savedImages);status.textContent='保存失败，原设置已保留：'+error.message;}
     finally{setBusy(false);}
   });
-  window.imageSettings.load().catch(()=>({})).then(async images=>{
+  (customizationEnabled?window.imageSettings.load().catch(()=>({})):Promise.resolve({})).then(async images=>{
     savedImages=images;
     try{await applyImages(images);}catch{savedImages={};await applyImages({});}
     ready();

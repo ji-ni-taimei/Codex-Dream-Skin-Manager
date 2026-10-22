@@ -2,6 +2,8 @@ import { writeSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { createCdpTransport } from "./cdp-transport.mjs";
+import { installStartupVideo } from "../assets/startup-animation/extension/video.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const animationRoot = path.resolve(path.dirname(scriptPath), "../assets/startup-animation");
@@ -36,7 +38,13 @@ async function settleWithin(milliseconds, operation) {
   }
 }
 
-export async function playStartupAnimation({ port, browserId, themeDir, timeoutMs = MAX_TIMEOUT_MS }) {
+export async function playStartupAnimation({ port, browserId, themeDir, videoPath = null, timeoutMs = MAX_TIMEOUT_MS }) {
+  const macos = process.platform === "darwin";
+  const transport = createCdpTransport({ allowBrowserEndpoint: true });
+  if (macos && !browserId) {
+    const version = await transport.fetchCdpJson(port, "/json/version");
+    browserId = new URL(transport.validatedDebuggerUrl(version, port)).pathname.match(/^\/devtools\/browser\/([A-Za-z0-9._-]{1,200})$/)?.[1];
+  }
   validateOptions({ port, browserId, themeDir, timeoutMs });
   // Reserve time for disposing an unsuccessful overlay and closing sockets.
   // The CLI watchdog below also bounds imported helpers and socket cleanup.
@@ -61,9 +69,16 @@ export async function playStartupAnimation({ port, browserId, themeDir, timeoutM
     ]));
     const [loadedSkin, source] = await bounded(() => Promise.all([
       injector.loadPayload(themeDir),
-      payloadBuilder.buildInjection(animationRoot, { wallpaperEnabled: false }),
+      videoPath ? `(${installStartupVideo.toString()})()` : payloadBuilder.buildInjection(animationRoot, { wallpaperEnabled: false, customizationEnabled: false }),
     ]));
-    anchor = await bounded(() => injector.connectBrowserIdentityAnchor(port, browserId).then((identity) => {
+    const connectIdentity = async () => {
+      if (!macos) return injector.connectBrowserIdentityAnchor(port, browserId);
+      const version = await transport.fetchCdpJson(port, "/json/version");
+      const url = transport.validatedDebuggerUrl(version, port);
+      if (new URL(url).pathname !== `/devtools/browser/${browserId}`) throw new Error("Codex browser identity changed");
+      return targetMatcher.connect(url);
+    };
+    anchor = await bounded(() => connectIdentity().then((identity) => {
       if (closing) {
         identity.close();
         throw new Error("Startup animation identity connected after its deadline");
@@ -85,9 +100,9 @@ export async function playStartupAnimation({ port, browserId, themeDir, timeoutM
       // markers; the animation contract also excludes auxiliary Codex windows.
       if (!targetMatcher.pageTarget(record.target)) continue;
       assertIdentity();
-      const skin = await bounded(() => injector.verifyAppliedSession(
-        record.session, loadedSkin.theme.id, loadedSkin.revision,
-      ));
+      const skin = await bounded(() => macos
+        ? injector.verifySession(record.session, loadedSkin.theme.id, loadedSkin.revision)
+        : injector.verifyAppliedSession(record.session, loadedSkin.theme.id, loadedSkin.revision));
       assertIdentity();
       if (skin?.pass === true) {
         selected = record;
@@ -100,6 +115,23 @@ export async function playStartupAnimation({ port, browserId, themeDir, timeoutM
     const result = await bounded(() => selected.session.evaluate(source));
     if (result?.installed !== true) throw new Error("Startup animation overlay was not installed");
     assertIdentity();
+    if (videoPath) {
+      try {
+        const lookup = await bounded(() => selected.session.send("Runtime.evaluate", {
+          expression: 'document.getElementById("dream-skin-startup-video-file")', returnByValue: false,
+        }));
+        const objectId = lookup.result?.objectId;
+        if (!objectId) throw new Error("Startup video file input was not installed");
+        try { await bounded(() => selected.session.send("DOM.setFileInputFiles", { files: [videoPath], objectId })); }
+        finally { await selected.session.send("Runtime.releaseObject", { objectId }).catch(() => {}); }
+        await bounded(() => selected.session.evaluate("globalThis.__aemeathExtension.bind()"));
+      } catch (error) {
+        // Esc/Skip may remove the file input during any CDP handoff step.
+        // A completed overlay is a successful dismissal, not a playback failure.
+        const state = await bounded(() => selected.session.evaluate("globalThis.__aemeathExtension?.status() ?? null")).catch(() => null);
+        if (state?.completed !== true) throw error;
+      }
+    }
     if (result.alreadyActive) {
       await bounded(() => selected.session.evaluate("globalThis.__aemeathExtension.replay()"));
     }

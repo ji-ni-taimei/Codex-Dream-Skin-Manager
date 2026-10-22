@@ -35,5 +35,6 @@ export async function runtimeEngine(root: string, state: string, platform: "wind
           typeof session.engineRevision === "string" && /^[a-f0-9]{64}$/.test(session.engineRevision)) running = session.engineRevision;
     }
   }
-  return { engineRevision: expected, runningEngineRevision: running, upgradeRequired: expected !== null && expected !== running };
+  // Missing session evidence means unknown, not an outdated running engine.
+  return { engineRevision: expected, runningEngineRevision: running, upgradeRequired: expected !== null && running !== null && expected !== running };
 }

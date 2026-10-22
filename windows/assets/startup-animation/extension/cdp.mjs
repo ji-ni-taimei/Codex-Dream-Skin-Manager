@@ -23,6 +23,7 @@ export async function connect(url,Socket=WebSocket){
   });
   socket.addEventListener('close',()=>{for(const request of pending.values()){clearTimeout(request.timer);request.reject(new Error('调试连接已关闭'));}pending.clear();});
   return {
+    get closed(){return socket.readyState===WebSocket.CLOSING||socket.readyState===WebSocket.CLOSED;},
     call(method,params={},timeout=10000){return new Promise((resolve,reject)=>{
       const id=++serial,timer=setTimeout(()=>{pending.delete(id);reject(new Error(method+' 超时'));},timeout);
       pending.set(id,{resolve,reject,timer});

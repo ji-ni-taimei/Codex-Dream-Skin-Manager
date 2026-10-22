@@ -31,6 +31,8 @@ import type { UpdatePort } from "./ports/updates.mjs";
 import { DESKTOP_METHODS, MAINTENANCE_METHODS } from "../contracts/manager.mjs";
 import { Maintenance } from "./maintenance.mjs";
 import type { MaintenancePort } from "./maintenance.mjs";
+import { STARTUP_METHODS } from "../contracts/manager.mjs";
+import { startupAnimationSettings, saveStartupAnimationSettings } from "./startup-animation.mjs";
 
 function summary(theme: ThemeDetails): ThemeSummary {
   const { ref, name, storageCategory, displayCategories, tags, mediaKind, catalogOrder, addedAt, modifiedAt, revision } = theme;
@@ -95,6 +97,22 @@ export class ManagerService {
     if (this.closing) throw new ContractError("BACKEND_UNAVAILABLE", "This manager session is closing; accepted operations will finish without replay.");
     if ((this.updates?.busy || this.maintenance?.busy) && ["skin.apply", ...RUNTIME_METHODS, ...LIBRARY_METHODS, "themes.create", "themes.importPackage", "themes.delete", "library.recover", "community.import", "community.apply"].includes(request.method)) throw new ContractError("BUSY", "更新或维护正在准备，暂时不能修改主题或运行时。");
     switch (request.method) {
+      case "startup.get":
+        if (!this.stateRoot) throw new ContractError("METHOD_UNSUPPORTED", "Startup animation settings are unavailable.");
+        return startupAnimationSettings(this.stateRoot);
+      case "startup.update": {
+        if (!this.stateRoot || !this.operations) throw new ContractError("METHOD_UNSUPPORTED", "Startup animation settings are unavailable.");
+        const params = request.params, settings = await startupAnimationSettings(this.stateRoot);
+        if (params.enabled !== undefined) settings.enabled = params.enabled;
+        if (params.theme === null) { settings.theme = null; settings.themeName = null; }
+        else if (params.theme) {
+          const theme = await themeDetails(await this.find(params.theme));
+          if (theme.revision !== params.expectedRevision) throw new ContractError("THEME_CHANGED", "The selected theme changed; refresh before selecting its startup video.");
+          if (theme.mediaKind !== "video") throw new ContractError("MEDIA_UNSUPPORTED", "Only video themes can be used as startup animations.");
+          settings.theme = theme.ref; settings.themeName = theme.name;
+        }
+        return saveStartupAnimationSettings(this.stateRoot, settings);
+      }
       case "maintenance.inspect":
         if (!this.maintenance) throw new ContractError("METHOD_UNSUPPORTED", "Maintenance is unavailable.");
         return (await this.maintenance.inspect()).info;
@@ -239,7 +257,7 @@ export class ManagerService {
     return { backendSessionId: this.sessionId, platform: this.platform.name,
       versions: { bridge: PROTOCOL, node: process.versions.node, application: await this.platform.applicationVersion() },
       capabilities: { methods: [...READ_METHODS.filter(method => method === "themes.active" ? !!this.stateRoot : method === "media.activePreview" ? !!this.stateRoot && !!this.resources : method === "media.release" ? !!this.resources : true), ...SESSION_METHODS, ...(this.resources ? ["media.resolve" as const] : []), ...(this.operations ? OPERATION_METHODS : []),
-        ...(this.operations && this.runtimePort ? RUNTIME_METHODS : []),
+        ...(this.operations && this.runtimePort ? RUNTIME_METHODS : []), ...(this.stateRoot && this.operations ? STARTUP_METHODS : []),
         ...(this.operations && this.library ? [...LIBRARY_METHODS, ...RECOVERY_METHODS] : []), ...(this.sources && this.nativeFiles && this.resources && this.operations && this.library ? SOURCE_METHODS : []),
         ...(this.packages && this.packageValidation && this.nativeFiles && this.resources && this.operations && this.library ? PACKAGE_METHODS : []),
         ...(this.community ? COMMUNITY_METHODS : []), ...(this.updates && this.nativeFiles ? UPDATE_METHODS : []),

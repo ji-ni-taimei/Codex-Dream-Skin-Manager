@@ -215,6 +215,20 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     });
   }
 
+  outputs.push({
+    content: await readFile(path.join(projectRoot, "runtime", "play-startup-animation.mjs"), "utf8"),
+    paths: ["windows/scripts/play-startup-animation.mjs", "macos/scripts/play-startup-animation.mjs"],
+    sources: ["runtime/play-startup-animation.mjs"],
+  });
+  for (const name of ["index.html", "style.css", "animation.js", "image-settings.js", "assets/contours.js", "assets/avatar.jpg", "assets/artwork.jpg", "extension/payload.mjs", "extension/renderer.mjs", "extension/cdp.mjs", "extension/wallpaper.css", "extension/video.mjs"]) {
+    const source = "runtime/startup-animation/" + name;
+    outputs.push({
+      content: await readFile(path.join(projectRoot, source), name.endsWith(".jpg") ? undefined : "utf8"),
+      paths: ["windows/assets/startup-animation/" + name, "macos/assets/startup-animation/" + name],
+      sources: [source],
+    });
+  }
+
   const canonicalSources = {
     "selectors.json": ["tools/selectors.json"],
     "dream-skin.css": ["runtime/dream-skin.css", "tools/selectors.json"],
@@ -222,7 +236,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   };
   return outputs.map((output) => ({
     ...output,
-    sources: canonicalSources[path.basename(output.paths[0])] ?? ["runtime/" + path.basename(output.paths[0])],
+    sources: output.sources ?? canonicalSources[path.basename(output.paths[0])] ?? ["runtime/" + path.basename(output.paths[0])],
   }));
 }
 
@@ -237,12 +251,13 @@ async function main() {
     for (const relativePath of output.paths) {
       const outputPath = path.join(projectRoot, relativePath);
       if (checkOnly) {
-        const current = await fs.readFile(outputPath, "utf8").catch(() => null);
-        if (current !== output.content) {
+        const current = await fs.readFile(outputPath).catch(() => null);
+        if (!current || !current.equals(Buffer.from(output.content))) {
           console.error(`out-of-date=${relativePath}`);
           mismatches += 1;
         }
       } else {
+        await fs.mkdir(path.dirname(outputPath), { recursive: true });
         await fs.writeFile(outputPath, output.content, "utf8");
         console.log(`updated=${relativePath}`);
       }
