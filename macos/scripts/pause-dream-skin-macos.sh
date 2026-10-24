@@ -5,6 +5,10 @@
 
 set -euo pipefail
 . "$(cd "$(dirname "$0")" && pwd -P)/common-macos.sh"
+assert_codex_user_environment || exit 1
+discover_codex_app
+require_signed_node_runtime
+assert_codex_process_environment || exit 1
 . "$SCRIPT_DIR/theme-switch-lock-macos.sh"
 OPERATION_TOKEN=""
 LOCK_TOKEN=""
@@ -98,9 +102,6 @@ if [ -n "$LOCK_TOKEN" ]; then assert_inherited_theme_switch_lock "$LOCK_TOKEN" "
 /bin/rm -f "$OPERATION_ACK_PATH"
 write_operation_state pausing "$(dreamskin_text pausing_skin)" "$OPERATION_TOKEN" \
   || fail "Could not publish the pause operation state."
-discover_codex_app
-require_signed_node_runtime
-
 if [ "$PORT_EXPLICIT" = "false" ] && [ -f "$STATE_PATH" ]; then
   saved_port="$(state_field port 2>/dev/null || true)"
   [ -n "${saved_port:-}" ] && PORT="$saved_port"

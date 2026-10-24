@@ -2,12 +2,13 @@
 
 set -Eeuo pipefail
 . "$(cd "$(dirname "$0")" && pwd -P)/common-macos.sh"
+assert_codex_user_environment || exit 1
 OPERATION_TOKEN=""
 OPERATION_FINISHED="false"
 VERIFY_OUTPUT=""
 
 activate_codex_window() {
-  /usr/bin/open -a "$CODEX_BUNDLE" >/dev/null 2>&1 || true
+  run_codex_in_verified_environment /usr/bin/open -a "$CODEX_BUNDLE" >/dev/null 2>&1 || true
 }
 
 record_start_exit() {
@@ -75,14 +76,15 @@ done
 case "$PORT" in ''|*[!0-9]*) fail "Invalid port: $PORT" ;; esac
 [ "$PORT" -ge 1024 ] && [ "$PORT" -le 65535 ] || fail "Port must be between 1024 and 65535."
 
+discover_codex_app
+require_signed_node_runtime
+assert_codex_process_environment || exit 1
 ensure_state_root
 if [ "$FOREGROUND_INJECTOR" != "true" ]; then
   OPERATION_TOKEN="$(new_operation_token)"
   write_operation_state applying "$(dreamskin_text applying_skin)" "$OPERATION_TOKEN" \
     || fail "Could not publish the apply operation state."
 fi
-discover_codex_app
-require_signed_node_runtime
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 ENGINE_WORKER="$ENGINE_ROOT/shared/core/runtime-worker.mjs"
 LAUNCH_ENGINE_REVISION=""

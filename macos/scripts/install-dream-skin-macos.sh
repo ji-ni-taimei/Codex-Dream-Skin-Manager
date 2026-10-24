@@ -2,6 +2,7 @@
 
 set -euo pipefail
 . "$(cd "$(dirname "$0")" && pwd -P)/common-macos.sh"
+assert_codex_user_environment || exit 1
 
 PORT=9341
 LAUNCH_AFTER_INSTALL="true"
@@ -79,6 +80,8 @@ if [ "$IN_PLACE" = "false" ] && [ "$PROJECT_ROOT" != "$INSTALL_ROOT" ]; then
   # the copy forces a rollback of a perfectly good previous engine, and an
   # interrupted rollback is how a mixed-version tree ships.
   codex_is_running && fail "Close Codex before installation so config.toml cannot be rewritten while the app is saving it."
+  require_signed_node_runtime
+  assert_codex_process_environment || exit 1
   /bin/mkdir -p "$(dirname "$INSTALL_ROOT")"
   deploy_project
   install_args=(--in-place --port "$PORT")
@@ -95,6 +98,7 @@ if [ "$IN_PLACE" = "false" ] && [ "$PROJECT_ROOT" != "$INSTALL_ROOT" ]; then
 fi
 
 require_macos_runtime
+assert_codex_process_environment || exit 1
 ensure_state_root
 codex_is_running && fail "Close Codex before installation so config.toml cannot be rewritten while the app is saving it."
 seed_bundled_presets

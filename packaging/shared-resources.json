@@ -36,6 +36,7 @@
         "scripts/gui-update.sh",
         "scripts/injector.mjs",
         "scripts/install-dream-skin-macos.sh",
+        "scripts/launch-environment-macos.mjs",
         "scripts/list-manager-themes-macos.mjs",
         "scripts/localization-macos.sh",
         "scripts/manager-community.sh",

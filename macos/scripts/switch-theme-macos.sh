@@ -4,6 +4,7 @@
 
 set -euo pipefail
 . "$(cd "$(dirname "$0")" && pwd -P)/common-macos.sh"
+assert_codex_user_environment || exit 1
 . "$SCRIPT_DIR/theme-switch-lock-macos.sh"
 
 THEME_ID=""
@@ -86,6 +87,8 @@ else
   [ -d "$SRC" ] && [ ! -L "$SRC" ] || fail "Rollback snapshot is missing or invalid."
 fi
 
+ensure_node_runtime
+assert_codex_process_environment || exit 1
 if [ -n "$LOCK_TOKEN" ]; then
   assert_inherited_theme_switch_lock "$LOCK_TOKEN" "$LOCK_OWNER"
 else
@@ -96,7 +99,6 @@ if [ "$APPLY_NOW" = "true" ]; then
   write_operation_state applying "$(dreamskin_text switching_theme)" "$OPERATION_TOKEN" \
     || fail "Could not publish the theme switch operation state."
 fi
-ensure_node_runtime
 themes_root_real=""
 [ ! -d "$THEMES_ROOT" ] || themes_root_real="$(cd "$THEMES_ROOT" && pwd -P)"
 src_real="$(cd "$SRC" && pwd -P)"

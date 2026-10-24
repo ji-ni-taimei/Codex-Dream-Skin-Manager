@@ -15,6 +15,7 @@ while IFS= read -r file; do "$NODE" --check "$file" >/dev/null; done < <(
 # `bash -n` accepts a bare $var abutting full-width CJK punctuation, but the
 # same source aborts at runtime under a UTF-8 locale with `set -u` and masks
 # the real failure behind a bogus "unbound variable" (#251).
+"$NODE" "$ROOT/tests/launch-environment.test.mjs"
 "$NODE" "$ROOT/tests/shell-braced-vars-before-cjk.test.mjs"
 "$NODE" "$ROOT/tests/bundled-node-runtime.test.mjs"
 

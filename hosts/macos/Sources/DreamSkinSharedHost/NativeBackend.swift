@@ -20,7 +20,24 @@ func safeFile(_ file: URL, within root: URL) throws {
 }
 func matches(_ value: String, _ pattern: String) -> Bool { value.range(of: pattern, options: .regularExpression) != nil }
 
+func backendMode(environment: [String: String]) -> String {
+    guard environment["DREAMSKIN_PREVIEW"] != "1",
+          let directory = getpwuid(getuid())?.pointee.pw_dir else { return "read" }
+    let home = String(cString: directory)
+    guard home.hasPrefix("/"),
+          let accountHome = try? canonicalFileURL(URL(fileURLWithPath: home)) else { return "read" }
+    // An isolated home must not gain control of the real desktop application.
+    for key in ["HOME", "CFFIXED_USER_HOME"] {
+        guard let value = environment[key] else { continue }
+        guard value.hasPrefix("/"),
+              let candidate = try? canonicalFileURL(URL(fileURLWithPath: value)),
+              candidate == accountHome else { return "read" }
+    }
+    return "manager"
+}
+
 final class NativeBackend {
+    let readOnly: Bool
     private let process = Process(), input = Pipe(), output = Pipe(), errors = Pipe()
     private let writes = DispatchQueue(label: "dreamskin.manager.input")
     private let lock = NSLock()
@@ -31,8 +48,14 @@ final class NativeBackend {
     init(root: URL, resources: URL) throws {
         let node = root.appendingPathComponent("runtime/node/node"), entry = root.appendingPathComponent("shared/core/main.mjs")
         try safeFile(node, within: root); try safeFile(entry, within: root)
+        let environment = ProcessInfo.processInfo.environment
+        let mode = backendMode(environment: environment)
+        readOnly = mode == "read"
+        var backendEnvironment = environment
+        if mode == "read" { backendEnvironment["DREAMSKIN_PREVIEW"] = "1" }
         process.executableURL = node
-        process.arguments = [entry.path, "--application-root", root.path, "--resource-directory", resources.path, "--media-origin", "dreamskin-media://resource", "--mode", "manager"]
+        process.arguments = [entry.path, "--application-root", root.path, "--resource-directory", resources.path, "--media-origin", "dreamskin-media://resource", "--mode", mode]
+        process.environment = backendEnvironment
         process.currentDirectoryURL = root
         process.standardInput = input; process.standardOutput = output; process.standardError = errors
     }

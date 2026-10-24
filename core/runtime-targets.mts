@@ -1,5 +1,6 @@
 import path from "node:path";
 import os from "node:os";
+import { ContractError } from "../contracts/manager.mjs";
 import { MAX_CONFIG_BYTES, optionalBytes, sha256 } from "./local-files.mjs";
 import { readAdapter } from "../platforms/factory.mjs";
 import { observedThemeDetails, themeDetails, themeListStamp } from "./theme-model.mjs";
@@ -33,7 +34,9 @@ export async function runtimeTargets(applicationRoot: string, state: string, obs
   return { defaultTheme: details?.ref ?? null, defaultRevision: details?.revision ?? null, ...appearance };
 }
 export async function appearanceState(state: string) {
-  const config = path.join(os.homedir(), ".codex", "config.toml");
+  const codexHome = process.platform === "darwin" ? process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex") : path.join(os.homedir(), ".codex");
+  if (!path.isAbsolute(codexHome)) throw new ContractError("RUNTIME_UNAVAILABLE", "CODEX_HOME must be an absolute profile directory.");
+  const config = path.join(codexHome, "config.toml");
   const backup = path.join(state, process.platform === "win32" ? "config.before-dream-skin.toml" : "theme-backup.json");
   const files = [config, backup, ...(process.platform === "win32" ? [backup + ".appearance.json", backup + ".startup-appearance.json"] : [])];
   const bytes = await Promise.all(files.map(file => optionalBytes(file, file === config ? path.dirname(config) : state, MAX_CONFIG_BYTES, 0)));

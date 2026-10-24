@@ -247,7 +247,7 @@ assert.match(
 );
 assert.match(
   startSource,
-  /activate_codex_window\(\)\s*\{\s*\/usr\/bin\/open -a "\$CODEX_BUNDLE"[^\n]*\n\}/,
+  /activate_codex_window\(\)\s*\{\s*run_codex_in_verified_environment \/usr\/bin\/open -a "\$CODEX_BUNDLE"[^\n]*\n\}/,
   "Window activation must use the exact bundle without starting another instance.",
 );
 
@@ -301,6 +301,9 @@ INJECTOR="$FIXTURE_ROOT/injector.mjs"
 NODE="$NODE_MOCK"
 dreamskin_text() { /usr/bin/printf '%s\\n' "$1"; }
 fail() { /usr/bin/printf '%s\\n' "$*" >&2; exit 1; }
+assert_codex_user_environment() { return 0; }
+assert_codex_process_environment() { return 0; }
+run_codex_in_verified_environment() { "$@"; }
 ensure_state_root() { /bin/mkdir -p "$STATE_ROOT" "$THEME_DIR"; }
 new_operation_token() { /usr/bin/printf '123:1234567890123:1\\n'; }
 write_operation_state() { return 0; }

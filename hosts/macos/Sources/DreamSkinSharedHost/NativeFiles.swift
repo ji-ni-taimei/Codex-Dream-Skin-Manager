@@ -43,6 +43,10 @@ final class NativeFiles {
         guard !closed, message["protocol"] as? String == managerProtocol, message["kind"] as? String == "request",
               let id = message["requestId"] as? String, matches(id, "\\A(?!native:)[A-Za-z0-9:_-]{1,128}\\z"),
               let parameters = message["params"] as? [String: Any], Set(message.keys) == Set(["protocol", "kind", "requestId", "method", "params"]) else { return true }
+        if backend.readOnly && !["desktop.get", "desktop.intents"].contains(method) {
+            postFailure(id, "METHOD_UNSUPPORTED", "Preview mode does not allow native changes.")
+            return true
+        }
         guard requests.insert(id).inserted else { postFailure(id, "INVALID_REQUEST", "Repeated native request."); return true }
         recentRequests.append(id)
         if recentRequests.count > 1024 { requests.remove(recentRequests.removeFirst()) }

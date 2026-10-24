@@ -36,7 +36,7 @@ try {
   const resources = directory && origin ? new MediaResources(directory, origin, async message => {
     await new Promise<void>((resolve, reject) => process.stdout.write(JSON.stringify(message) + "\n", "utf8", error => error ? reject(error) : resolve()));
   }, mediaInspector(root, platform.name), platform.name === "windows" ? path.join(root, "windows", "assets", "video-posters") : undefined) : undefined;
-  const manager = options.get("--mode") === "manager";
+  const manager = options.get("--mode") === "manager" && process.env.DREAMSKIN_PREVIEW !== "1";
   if (manager) await initialize(root);
   const packages = packageValidation(root, platform.name, () => platform.applicationVersion());
   const service = new ManagerService(platform, resources, manager ? new PlatformApply(root, state) : undefined, state,
