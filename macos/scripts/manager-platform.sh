@@ -7,6 +7,7 @@ ACTION="${1:-}"
 APPLICATION_ROOT="${2:-}"
 REQUEST_PATH="${3:-}"
 case "$ACTION" in probe|apply|inspect|runtimeprobe|pause|restore|commitcommunity) ;; *) fail "Invalid shared manager action." ;; esac
+case "$ACTION" in apply|pause|restore|commitcommunity) assert_codex_user_environment || exit 1 ;; esac
 [ -n "$APPLICATION_ROOT" ] && [ "${APPLICATION_ROOT:0:1}" = / ] || fail "Missing application root."
 CORE_NODE="$APPLICATION_ROOT/runtime/node/node"
 WORKER="$APPLICATION_ROOT/shared/core/apply-worker.mjs"
@@ -14,6 +15,7 @@ WORKER="$APPLICATION_ROOT/shared/core/apply-worker.mjs"
 ensure_node_runtime
 
 probe() {
+  assert_codex_process_environment || return 1
   local port=9341 browser="" paused=false processes="" pid started watcher_verified=false
   if [ -f "$STATE_PATH" ]; then
     port="$(state_field port)"

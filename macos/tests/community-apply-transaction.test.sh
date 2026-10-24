@@ -19,6 +19,8 @@ SCRIPTS="$ENGINE/scripts"
   'NODE="${NODE:?}"' \
   'INJECTOR="$SCRIPT_DIR/injector.mjs"' \
   'fail() { printf "fixture failure: %s\n" "$*" >&2; exit 1; }' \
+  'assert_codex_user_environment() { return 0; }' \
+  'assert_codex_process_environment() { return 0; }' \
   'ensure_state_root() { /bin/mkdir -p "$STATE_ROOT"; /bin/chmod 700 "$STATE_ROOT"; }' \
   'new_operation_token() { printf "123:1234567890123:1\n"; }' \
   'operation_token_is_valid() { printf "%s" "$1" | /usr/bin/grep -Eq "^[0-9]{1,12}:[0-9]{13}:[0-9]{1,8}$"; }' \

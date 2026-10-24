@@ -29,8 +29,18 @@ FAKE_EXE="$FAKE_APP/Contents/MacOS/ChatGPT"
 FAKE_PLIST="$FAKE_APP/Contents/Info.plist"
 LIVE_ENGINE="$TEST_HOME/.codex/codex-dream-skin-studio"
 OUTPUT="$TMP/install-output.txt"
+FIXTURE_SOURCE="$TMP/source"
+FIXTURE_SCRIPTS="$FIXTURE_SOURCE/scripts"
 
-/bin/mkdir -p "$FAKE_APP/Contents/MacOS" "$TEST_HOME/.codex" "$LIVE_ENGINE"
+/bin/mkdir -p "$FAKE_APP/Contents/MacOS" "$TEST_HOME/.codex" "$LIVE_ENGINE" "$FIXTURE_SCRIPTS"
+# Keep the real environment guard; substitute only the account-home lookup.
+/usr/bin/printf '%s\n' '#!/bin/bash' \
+  '/usr/bin/printf "NFSHomeDirectory: %s\n" "$FIXTURE_ACCOUNT_HOME"' \
+  > "$TMP/dscl-mock.sh"
+/bin/chmod 700 "$TMP/dscl-mock.sh"
+/usr/bin/sed "s|/usr/bin/dscl|$TMP/dscl-mock.sh|g" \
+  "$ROOT/scripts/common-macos.sh" > "$FIXTURE_SCRIPTS/common-macos.sh"
+/bin/cp "$ROOT/scripts/localization-macos.sh" "$ROOT/scripts/install-dream-skin-macos.sh" "$FIXTURE_SCRIPTS/"
 /usr/bin/printf '%s\n' \
   '#include <signal.h>' \
   '#include <unistd.h>' \
@@ -48,11 +58,11 @@ fi
 /usr/bin/plutil -insert CFBundleShortVersionString -string 99.0.0 "$FAKE_PLIST"
 /usr/bin/printf '%s\n' 'previous-engine' > "$LIVE_ENGINE/old-engine-marker"
 
-# A closed app reaches the inner signed-runtime gate. That intentional failure
+# A closed app reaches the signed-runtime gate. That intentional failure
 # must not emit an unbound-variable error or replace the previous engine.
-if /usr/bin/env -u CODEX_EXE -u CODEX_BUNDLE \
-  HOME="$TEST_HOME" CODEX_APP_BUNDLE="$FAKE_APP" \
-  "$ROOT/scripts/install-dream-skin-macos.sh" --no-launch \
+if /usr/bin/env -u CODEX_EXE -u CODEX_BUNDLE -u CODEX_HOME -u CFFIXED_USER_HOME -u DREAMSKIN_PREVIEW \
+  HOME="$TEST_HOME" FIXTURE_ACCOUNT_HOME="$TEST_HOME" CODEX_APP_BUNDLE="$FAKE_APP" \
+  /bin/bash "$FIXTURE_SCRIPTS/install-dream-skin-macos.sh" --no-launch \
   >"$OUTPUT" 2>&1; then
   printf 'Unsigned fixture unexpectedly completed engine installation.\n' >&2
   exit 1
@@ -61,6 +71,7 @@ if /usr/bin/grep -F -q 'unbound variable' "$OUTPUT"; then
   printf 'Outer installer used an app variable before discovery.\n' >&2
   exit 1
 fi
+/usr/bin/grep -F -q 'The ChatGPT app signature is not valid.' "$OUTPUT"
 [ -f "$LIVE_ENGINE/old-engine-marker" ]
 [ ! -f "$LIVE_ENGINE/VERSION" ]
 [ -z "$(/usr/bin/find "$TEST_HOME/.codex" -maxdepth 1 \
@@ -79,9 +90,9 @@ for _ in 1 2 3 4 5; do
 done
 /bin/kill -0 "$DUMMY_PID"
 /bin/chmod 500 "$TEST_HOME/.codex"
-if /usr/bin/env -u CODEX_EXE -u CODEX_BUNDLE \
-  HOME="$TEST_HOME" CODEX_APP_BUNDLE="$FAKE_APP" \
-  "$ROOT/scripts/install-dream-skin-macos.sh" --no-launch \
+if /usr/bin/env -u CODEX_EXE -u CODEX_BUNDLE -u CODEX_HOME -u CFFIXED_USER_HOME -u DREAMSKIN_PREVIEW \
+  HOME="$TEST_HOME" FIXTURE_ACCOUNT_HOME="$TEST_HOME" CODEX_APP_BUNDLE="$FAKE_APP" \
+  /bin/bash "$FIXTURE_SCRIPTS/install-dream-skin-macos.sh" --no-launch \
   >"$OUTPUT" 2>&1; then
   printf 'Installer continued while the discovered app executable was running.\n' >&2
   exit 1
@@ -96,4 +107,4 @@ stop_dummy
   -o -name 'codex-dream-skin-studio.previous.*' \
   -o -name 'codex-dream-skin-studio.broken.*' \) -print -quit)" ]
 
-printf 'PASS: macOS outer installer discovers the app before guarding and rolls back failed deployment.\n'
+printf 'PASS: macOS outer installer discovers the app before guarding and preserves the engine on preflight failure.\n'

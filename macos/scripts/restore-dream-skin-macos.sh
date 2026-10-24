@@ -2,6 +2,7 @@
 
 set -euo pipefail
 . "$(cd "$(dirname "$0")" && pwd -P)/common-macos.sh"
+assert_codex_user_environment || exit 1
 . "$SCRIPT_DIR/theme-switch-lock-macos.sh"
 
 PORT=9341
@@ -78,6 +79,7 @@ fi
 
 discover_codex_app
 require_macos_runtime
+assert_codex_process_environment || exit 1
 ensure_state_root
 if [ -n "$LOCK_TOKEN" ]; then
   assert_inherited_theme_switch_lock "$LOCK_TOKEN" "$PPID"

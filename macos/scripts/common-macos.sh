@@ -20,7 +20,7 @@ OPERATION_STATE_PATH="$STATE_ROOT/operation-state.plist"
 OPERATION_ACK_PATH="$STATE_ROOT/operation-control-ack.json"
 THEME_BACKUP_PATH="$STATE_ROOT/theme-backup.json"
 THEME_DIR="$STATE_ROOT/theme"
-CONFIG_PATH="$HOME/.codex/config.toml"
+CONFIG_PATH="${CODEX_HOME:-$HOME/.codex}/config.toml"
 INJECTOR_LOG="$STATE_ROOT/injector.log"
 INJECTOR_ERROR_LOG="$STATE_ROOT/injector-error.log"
 APP_LOG="$STATE_ROOT/codex-launch.log"
@@ -44,6 +44,60 @@ fail() {
   fi
   printf 'ChatGPT Dream Skin: %s\n' "$message" >&2
   exit 1
+}
+
+assert_codex_user_environment() {
+  local account record account_home current_home fixed_home
+  if [ "${DREAMSKIN_PREVIEW:-}" = 1 ]; then
+    printf 'DREAM_SKIN_ENVIRONMENT_MISMATCH: Preview mode cannot control Codex.\n' >&2
+    return 1
+  fi
+  account="$(/usr/bin/id -un)" || return 1
+  record="$(/usr/bin/dscl /Search -read "/Users/$account" NFSHomeDirectory 2>/dev/null)" || {
+    printf 'DREAM_SKIN_ENVIRONMENT_MISMATCH: Could not resolve the macOS account home.\n' >&2
+    return 1
+  }
+  case "$record" in 'NFSHomeDirectory: '*) account_home="${record#NFSHomeDirectory: }" ;; *) return 1 ;; esac
+  case "$account_home" in /*) ;; *) return 1 ;; esac
+  account_home="$(cd "$account_home" && pwd -P)" || return 1
+  case "${HOME:-}" in /*) ;; *) return 1 ;; esac
+  current_home="$(cd "$HOME" && pwd -P)" || return 1
+  if [ "$current_home" != "$account_home" ]; then
+    printf 'DREAM_SKIN_ENVIRONMENT_MISMATCH: Isolated HOME; Codex and its data were not changed.\n' >&2
+    return 1
+  fi
+  if [ "${CFFIXED_USER_HOME+x}" = x ]; then
+    case "$CFFIXED_USER_HOME" in /*) ;; *) return 1 ;; esac
+    fixed_home="$(cd "$CFFIXED_USER_HOME" && pwd -P)" || return 1
+    if [ "$fixed_home" != "$account_home" ]; then
+      printf 'DREAM_SKIN_ENVIRONMENT_MISMATCH: Isolated CFFIXED_USER_HOME; Codex was not changed.\n' >&2
+      return 1
+    fi
+  fi
+  if [ "${CODEX_HOME+x}" = x ]; then
+    case "$CODEX_HOME" in /*) [ -d "$CODEX_HOME" ] || return 1 ;; *) return 1 ;; esac
+  fi
+}
+
+assert_codex_process_environment() {
+  assert_codex_user_environment || return 1
+  local pids pid profile
+  local identities=(check "$CODEX_EXE")
+  pids="$(codex_main_pids)" || return 1
+  while IFS= read -r pid; do
+    [ -z "$pid" ] || identities+=("$pid")
+  done <<< "$pids"
+  profile="$("$NODE" "$SCRIPT_DIR/launch-environment-macos.mjs" "${identities[@]}")" || return 1
+  IFS=$'\t' read -r CODEX_LAUNCH_HOME CODEX_LAUNCH_DATA_HOME <<< "$profile"
+  [ -n "$CODEX_LAUNCH_HOME" ] && [ -n "$CODEX_LAUNCH_DATA_HOME" ]
+}
+
+run_codex_in_verified_environment() {
+  local temporary
+  assert_codex_process_environment || return 1
+  temporary="$(/usr/bin/getconf DARWIN_USER_TEMP_DIR)" || return 1
+  [ -d "$temporary" ] || return 1
+  /usr/bin/env -u CFFIXED_USER_HOME HOME="$CODEX_LAUNCH_HOME" CODEX_HOME="$CODEX_LAUNCH_DATA_HOME" TMPDIR="$temporary" "$@"
 }
 
 notify_user() {
@@ -418,6 +472,7 @@ recorded_injector_process_matches() {
 }
 
 quit_codex_for_restart() {
+  assert_codex_process_environment || return 1
   local outcome
   local deadline
   codex_is_running || return 0
@@ -462,6 +517,7 @@ APPLESCRIPT
 }
 
 stop_codex() {
+  assert_codex_process_environment || return 1
   local allow_force="${1:-false}"
   local deadline
   local pid
@@ -832,6 +888,7 @@ ensure_node_runtime() {
 # Fast path when CDP is already open: restart injector + one-shot inject.
 # Returns 0 on success, 1 if CDP is not ready (caller should full-start).
 hot_reapply_theme() {
+  assert_codex_process_environment || return 1
   local port="${1:-9341}"
   local timeout_ms="${2:-8000}"
   local operation_token="${3:-}"
@@ -884,24 +941,26 @@ hot_reapply_theme() {
 # Older builds used `launchctl submit` which can relaunch Codex after the user quits
 # or after SwiftBar exits — that is unexpected and unwanted.
 release_codex_launchd_job() {
+  assert_codex_user_environment || return 1
   /bin/launchctl remove "gui/$(/usr/bin/id -u)/$CODEX_APP_JOB_LABEL" >/dev/null 2>&1 || true
   /bin/launchctl remove "$CODEX_APP_JOB_LABEL" >/dev/null 2>&1 || true
 }
 
 launch_codex_with_cdp() {
   local port="$1"
+  assert_codex_process_environment || return 1
   : > "$APP_LOG"
   : > "$APP_ERROR_LOG"
   release_codex_launchd_job
   # Start as a normal user process (NOT launchctl submit). submit keeps a job
   # that will restart Codex when the window is closed.
-  /usr/bin/open -na "$CODEX_BUNDLE" --args \
+  run_codex_in_verified_environment /usr/bin/open -na "$CODEX_BUNDLE" --args \
     --remote-debugging-address=127.0.0.1 \
     --remote-debugging-port="$port" \
     >>"$APP_LOG" 2>>"$APP_ERROR_LOG" || true
   # Fallback if open failed to pass args on some builds
   if ! codex_is_running; then
-    /usr/bin/nohup "$CODEX_EXE" \
+    run_codex_in_verified_environment /usr/bin/nohup "$CODEX_EXE" \
       --remote-debugging-address=127.0.0.1 \
       --remote-debugging-port="$port" \
       >>"$APP_LOG" 2>>"$APP_ERROR_LOG" &
@@ -909,6 +968,7 @@ launch_codex_with_cdp() {
 }
 
 launch_codex_normally() {
+  assert_codex_process_environment || return 1
   release_codex_launchd_job
-  /usr/bin/open -na "$CODEX_BUNDLE"
+  run_codex_in_verified_environment /usr/bin/open -na "$CODEX_BUNDLE"
 }

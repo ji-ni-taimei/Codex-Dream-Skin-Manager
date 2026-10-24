@@ -4,6 +4,7 @@ set -euo pipefail
 [ "$#" = 3 ] && [ "$1" = execute ] || exit 2
 application_root="$2"; request_file="$3"
 . "$(cd "$(dirname "$0")" && pwd -P)/common-macos.sh"
+assert_codex_user_environment || exit 1
 . "$SCRIPT_DIR/theme-switch-lock-macos.sh"
 acquire_theme_switch_lock "$(new_operation_token)"
 trap release_theme_switch_lock EXIT

@@ -4,6 +4,9 @@
 
 set -euo pipefail
 . "$(cd "$(dirname "$0")" && pwd -P)/common-macos.sh"
+assert_codex_user_environment || exit 1
+ensure_node_runtime
+assert_codex_process_environment || exit 1
 . "$SCRIPT_DIR/theme-switch-lock-macos.sh"
 
 THEME_ID=""
@@ -57,7 +60,6 @@ case "$transaction_root_real/" in "$state_root_real/.community-apply-"*/) ;; *) 
 
 LOCK_TOKEN="$(new_operation_token)"
 acquire_theme_switch_lock "$LOCK_TOKEN"
-ensure_node_runtime
 STATUS_RESULT="$("$SCRIPT_DIR/status-dream-skin-macos.sh" --json --deep)" \
   || fail "The current skin state could not be checked before community apply."
 ROLLBACK_PORT="$("$NODE" -e '

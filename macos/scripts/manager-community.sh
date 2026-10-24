@@ -3,6 +3,7 @@
 # active snapshot rollback. No arbitrary URL, library path or shell input.
 set -euo pipefail
 . "$(cd "$(dirname "$0")" && pwd -P)/common-macos.sh"
+assert_codex_user_environment || exit 1
 APPLICATION_ROOT="${1:-}"
 REQUEST_PATH="${2:-}"
 CORE_NODE="$APPLICATION_ROOT/runtime/node/node"
